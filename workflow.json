@@ -1,139 +1,344 @@
 {
-  "name": "PS5 Highlight → Shorts + GCS",
+  "name": "Corrected: Gaming Highlights → YouTube Shorts",
   "nodes": [
     {
       "parameters": {
-        "functionCode": "return [{ json: { channelId: \"UCqKZx0XQEFg6OD79XEfiERg\" } }];"
+        "httpMethod": "GET",
+        "path": "youtube-form",
+        "responseMode": "lastNode",
+        "options": {}
       },
-      "name": "Set Channel ID",
-      "type": "n8n-nodes-base.function",
+      "id": "e0c1f28b-3e5f-4a0b-8515-56455c1b691d",
+      "name": "Webhook Form (GET)",
+      "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [200, 300]
+      "position": [
+        120,
+        340
+      ]
     },
     {
       "parameters": {
+        "functionCode": "return [{ json: { html: `<html><body style='font-family: sans-serif; text-align: center; padding-top: 50px;'><h1>YouTube Gaming Clip Finder</h1><p>Submit a YouTube URL to find the best moments and turn them into Shorts.</p><form method='POST' action='./submit'><input type='text' name='video_url' placeholder='YouTube URL' style='width:400px; padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px;' required /><br><input type='text' name='game_name' placeholder='Game Name (e.g., Elden Ring)' style='width:400px; padding: 10px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 4px;' required /><br><input type='submit' value='Find Highlights' style='padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;' /></form></body></html>` } }];"
+      },
+      "id": "4b68e54a-5b4d-452a-9e66-60888b1b423c",
+      "name": "Return HTML Form",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        360,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "youtube-form/submit",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "23c2a373-34e4-4d1a-ad68-6f6fd1d7f6c3",
+      "name": "Webhook Form (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        120,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "command": "yt-dlp -f 'best[ext=mp4]' --output '/tmp/video.mp4' '{{$json.body.video_url}}'"
+      },
+      "id": "314f85e3-469d-4874-a032-4ca1215b0f59",
+      "name": "1. Download Video (yt-dlp)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        360,
+        560
+      ],
+      "notes": "Downloads the full video from the submitted URL to a temporary path on the n8n server."
+    },
+    {
+      "parameters": {
+        "functionCode": "const results = $json.annotationResults[0];\nconst safeScenes = [];\n\nif (!results) {\n  console.error('No annotation results found.');\n  return [];\n}\n\n// Filter for safe gaming clips between 5 and 60 seconds\nif (results.shotAnnotations) {\n  for (const shot of results.shotAnnotations) {\n    const startSec = parseFloat(shot.startTimeOffset.replace('s', '')) || 0;\n    const endSec = parseFloat(shot.endTimeOffset.replace('s', '')) || 0;\n    const duration = endSec - startSec;\n\n    if (duration < 5 || duration > 59) continue; // Shorts duration\n\n    let isSafe = true;\n    // Check for explicit content within the shot's timeframe\n    if (results.explicitAnnotation && results.explicitAnnotation.frames) {\n      const relatedFrames = results.explicitAnnotation.frames.filter(f => {\n        const t = parseFloat(f.timeOffset.replace('s', '')) || 0;\n        return t >= startSec && t <= endSec;\n      });\n      if (relatedFrames.some(f => f.pornographyLikelihood && !['VERY_UNLIKELY', 'UNLIKELY'].includes(f.pornographyLikelihood))) {\n        isSafe = false;\n      }\n    }\n\n    // Check for sensitive labels within the shot's timeframe\n    if (isSafe && results.segmentLabelAnnotations) {\n      const badLabels = ['weapon', 'violence', 'gore', 'gun'];\n      const shotLabels = results.segmentLabelAnnotations.filter(l => {\n        // Check if label segment overlaps with the shot segment\n        const segmentStart = parseFloat(l.segment.startTimeOffset.replace('s', '')) || 0;\n        const segmentEnd = parseFloat(l.segment.endTimeOffset.replace('s', '')) || 0;\n        return Math.max(startSec, segmentStart) < Math.min(endSec, segmentEnd);\n      }).map(l => l.entity.description.toLowerCase());\n      \n      if (shotLabels.some(lbl => badLabels.includes(lbl))) {\n        isSafe = false;\n      }\n    }\n\n    if (isSafe) {\n      const labels = results.segmentLabelAnnotations.map(l => l.entity.description);\n      safeScenes.push({ json: { start: startSec, end: endSec, labels: labels } });\n    }\n  }\n}\n\n// If no shots were found, return empty to stop the workflow\nif (safeScenes.length === 0) {\n  return [];\n}\n\n// Take top 3 clips by duration\nsafeScenes.sort((a, b) => (b.json.end - b.json.start) - (a.json.end - a.json.start));\nreturn safeScenes.slice(0, 3);",
+        "options": {}
+      },
+      "id": "f5f7f3da-a0da-4a6c-95fe-4f9e16d41829",
+      "name": "4. Filter Safe Clips",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1240,
+        560
+      ],
+      "notes": "Parses the AI analysis to find action-packed scenes that are safe for YouTube and are between 5-59 seconds long."
+    },
+    {
+      "parameters": {
+        "command": "ffmpeg -i /tmp/video.mp4 -ss {{ $json.start }} -to {{ $json.end }} -vf \"scale=1080:-2,crop=1080:1920\" -c:a copy -y \"/tmp/clip_{{ $itemIndex }}.mp4\""
+      },
+      "id": "e7b0a3aa-b78c-4a30-80a2-fde978c43ecb",
+      "name": "5. Clip Scene (FFmpeg)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1460,
+        560
+      ],
+      "notes": "Uses FFmpeg to cut the identified scene from the main video and formats it for YouTube Shorts (9:16 aspect ratio)."
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
         "resource": "video",
-        "operation": "list",
-        "part": "snippet,contentDetails",
-        "maxResults": 1,
-        "order": "date",
-        "filters": {
-          "channelId": "={{$json[\"channelId\"]}}"
+        "operation": "upload",
+        "title": "={{ $json.title }}",
+        "description": "={{ $json.description }}",
+        "binaryPropertyName": "data",
+        "additionalFields": {
+          "privacyStatus": "public",
+          "categoryId": "20"
         }
       },
-      "name": "Get Latest PS5 Video",
+      "id": "1d11ca71-7009-42b9-9159-b9d992985f40",
+      "name": "7. Upload to YouTube",
       "type": "n8n-nodes-base.youtube",
-      "typeVersion": 1,
-      "position": [450, 300],
+      "typeVersion": 2,
+      "position": [
+        1900,
+        560
+      ],
       "credentials": {
-        "youtubeOAuth2": "YOUR_YOUTUBE_OAUTH"
-      }
-    },
-    {
-      "parameters": {
-        "command": "yt-dlp -f 'best[height<=480]' -o /tmp/video_low.mp4 {{$json[\"id\"][\"videoId\"]}}"
-      },
-      "name": "Download Low-res for Analysis",
-      "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
-      "position": [700, 300]
-    },
-    {
-      "parameters": {
-        "url": "https://videointelligence.googleapis.com/v1/videos:annotate",
-        "authentication": "serviceAccount",
-        "sendBody": true,
-        "jsonParameters": true,
-        "options": {},
-        "body": {
-          "inputUri": "gs://YOUR_TEMP_BUCKET/video_low.mp4",
-          "features": ["SHOT_CHANGE_DETECTION"]
+        "youtubeOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "YOUR_YOUTUBE_CREDENTIAL_NAME"
         }
       },
-      "name": "GCP Scene Detection",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 1,
-      "position": [950, 300],
-      "credentials": {
-        "googleApi": {
-          "serviceAccountEmail": "YOUR_SERVICE_ACCOUNT_EMAIL",
-          "privateKey": "YOUR_PRIVATE_KEY"
-        }
-      }
+      "notes": "Uploads the final clip to YouTube as a public video in the 'Gaming' category."
     },
     {
       "parameters": {
-        "functionCode": "const shots = $json.annotationResults[0].shotAnnotations;\nlet longest = {duration:0};\nfor(const s of shots){\n  const start = (s.startTimeOffset.seconds||0) + (s.startTimeOffset.nanos||0)/1e9;\n  const end = (s.endTimeOffset.seconds||0) + (s.endTimeOffset.nanos||0)/1e9;\n  const dur = end-start;\n  if(dur>longest.duration) longest={start,end,duration:dur};\n}\nreturn [{json: longest}];"
+        "command": "rm -f /tmp/video.mp4 /tmp/clip_*.mp4"
       },
-      "name": "Pick Longest Scene",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 1,
-      "position": [1200, 300]
-    },
-    {
-      "parameters": {
-        "command": "yt-dlp -f 'bestvideo+bestaudio' -o /tmp/video_full.mp4 {{$json[\"id\"][\"videoId\"]}} && ffmpeg -i /tmp/video_full.mp4 -ss {{$json[\"start\"]}} -to {{$json[\"end\"]}} -vf \"scale=1080:1920,setsar=1:1\" -c:v libx264 -c:a aac /tmp/short.mp4"
-      },
-      "name": "Download Full-res & Clip",
+      "id": "525a74d1-c30f-48d6-a246-814c40a5a300",
+      "name": "8. Cleanup Files",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [1450, 300]
+      "position": [
+        2120,
+        560
+      ],
+      "notes": "Deletes all temporary video files from the server to save space."
     },
     {
       "parameters": {
         "authentication": "serviceAccount",
-        "url": "https://storage.googleapis.com/upload/storage/v1/b/YOUR_BUCKET_NAME/o?uploadType=media&name=shorts/{{$json[\"id\"][\"videoId\"]}}.mp4",
-        "sendBinaryData": true,
-        "binaryPropertyName": "data"
+        "bucket": "your-gcs-bucket-name",
+        "fileName": "video.mp4",
+        "binaryData": true,
+        "options": {}
       },
-      "name": "Upload to GCS Bucket",
-      "type": "n8n-nodes-base.httpRequest",
+      "id": "18f99066-cd77-440f-b27b-272e50580da3",
+      "name": "2. Upload to GCS",
+      "type": "n8n-nodes-base.googleCloudStorage",
       "typeVersion": 1,
-      "position": [1700, 150],
+      "position": [
+        580,
+        560
+      ],
       "credentials": {
         "googleApi": {
-          "serviceAccountEmail": "YOUR_SERVICE_ACCOUNT_EMAIL",
-          "privateKey": "YOUR_PRIVATE_KEY"
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "YOUR_GCS_CREDENTIAL_NAME"
         }
-      }
+      },
+      "notes": "**ACTION REQUIRED**\n\nReplace 'your-gcs-bucket-name' with your actual Google Cloud Storage bucket name."
     },
     {
       "parameters": {
-        "videoPath": "/tmp/short.mp4",
-        "title": "PS5 Highlight",
-        "description": "Auto-clipped PS5 highlight.",
-        "tags": ["PS5","Gaming","Shorts"],
-        "privacyStatus": "public"
+        "authentication": "serviceAccount",
+        "service": "videointelligence",
+        "operation": "videos.annotate",
+        "body": "=\n{\n  \"inputUri\": \"gs://{{$json.bucket}}/{{$json.name}}\",\n  \"features\": [\n    \"SHOT_CHANGE_DETECTION\",\n    \"LABEL_DETECTION\",\n    \"EXPLICIT_CONTENT_DETECTION\"\n  ]\n}",
+        "options": {}
       },
-      "name": "Upload to YouTube Shorts",
-      "type": "n8n-nodes-base.youtube",
+      "id": "97e6de59-f2c9-4a9f-861f-c8f948f98c40",
+      "name": "3. Analyze with Video AI",
+      "type": "n8n-nodes-base.googleCloud",
       "typeVersion": 1,
-      "position": [1700, 450],
+      "position": [
+        800,
+        560
+      ],
       "credentials": {
-        "youtubeOAuth2": "YOUR_YOUTUBE_OAUTH"
-      }
+        "googleApi": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "YOUR_GCS_CREDENTIAL_NAME"
+        }
+      },
+      "notes": "Sends the video (now in GCS) to the Video Intelligence API for analysis. This process can take a few minutes for longer videos."
     },
     {
       "parameters": {
-        "command": "rm -f /tmp/video_low.mp4 /tmp/video_full.mp4 /tmp/short.mp4"
+        "mode": "mergeByPosition",
+        "options": {}
       },
-      "name": "Cleanup Temp Files",
-      "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
-      "position": [1950, 300]
+      "id": "06377852-780c-48fd-ac1c-1454e99f57f4",
+      "name": "Merge Game Name",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        700
+      ],
+      "notes": "This node fixes the data loss issue by merging the original `game_name` back in with the AI analysis results."
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "title",
+              "value": "={{ $json.labels.length>0 ? `${ $json.labels.slice(0,2).join(' & ')} in ${ $('Webhook Form (POST)').item.json.body.game_name} 🎮🔥` : `Epic ${ $('Webhook Form (POST)').item.json.body.game_name} Moment!` }} #Shorts #Gaming #{{ $('Webhook Form (POST)').item.json.body.game_name.replace(/\\s+/g, '') }}"
+            },
+            {
+              "name": "description",
+              "value": "=Auto-clipped highlight from {{ $('Webhook Form (POST)').item.json.body.game_name }} gameplay. Enjoy! #Shorts #Gaming"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "52857410-6ed6-49a6-9818-8f85f366113c",
+      "name": "6. Generate Gaming Titles",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        560
+      ],
+      "notes": "Creates a dynamic title and description for the YouTube Short using the game name and labels found by the AI."
     }
   ],
   "connections": {
-    "Set Channel ID": { "main": [[{"node":"Get Latest PS5 Video","type":"main","index":0}]] },
-    "Get Latest PS5 Video": { "main": [[{"node":"Download Low-res for Analysis","type":"main","index":0}]] },
-    "Download Low-res for Analysis": { "main": [[{"node":"GCP Scene Detection","type":"main","index":0}]] },
-    "GCP Scene Detection": { "main": [[{"node":"Pick Longest Scene","type":"main","index":0}]] },
-    "Pick Longest Scene": { "main": [[{"node":"Download Full-res & Clip","type":"main","index":0}]] },
-    "Download Full-res & Clip": { "main": [
-      [{"node":"Upload to GCS Bucket","type":"main","index":0}],
-      [{"node":"Upload to YouTube Shorts","type":"main","index":0}]
-    ]},
-    "Upload to GCS Bucket": { "main": [[{"node":"Cleanup Temp Files","type":"main","index":0}]] },
-    "Upload to YouTube Shorts": { "main": [[{"node":"Cleanup Temp Files","type":"main","index":0}]] }
+    "Webhook Form (GET)": {
+      "main": [
+        [
+          {
+            "node": "Return HTML Form",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Form (POST)": {
+      "main": [
+        [
+          {
+            "node": "1. Download Video (yt-dlp)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Game Name",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "1. Download Video (yt-dlp)": {
+      "main": [
+        [
+          {
+            "node": "2. Upload to GCS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Filter Safe Clips": {
+      "main": [
+        [
+          {
+            "node": "5. Clip Scene (FFmpeg)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Clip Scene (FFmpeg)": {
+      "main": [
+        [
+          {
+            "node": "6. Generate Gaming Titles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7. Upload to YouTube": {
+      "main": [
+        [
+          {
+            "node": "8. Cleanup Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Upload to GCS": {
+      "main": [
+        [
+          {
+            "node": "3. Analyze with Video AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Analyze with Video AI": {
+      "main": [
+        [
+          {
+            "node": "Merge Game Name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Game Name": {
+      "main": [
+        [
+          {
+            "node": "4. Filter Safe Clips",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6. Generate Gaming Titles": {
+      "main": [
+        [
+          {
+            "node": "7. Upload to YouTube",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   }
 }
