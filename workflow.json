@@ -1,14 +1,14 @@
 {
-  "name": "PS5 AI Highlight → Shorts + GCS Backup",
+  "name": "PS5 Highlight → Shorts + GCS",
   "nodes": [
     {
       "parameters": {
-        "functionCode": "return [{ json: { channelId: \"YOUR_CHANNEL_ID\" } }];"
+        "functionCode": "return [{ json: { channelId: \"UCqKZx0XQEFg6OD79XEfiERg\" } }];"
       },
       "name": "Set Channel ID",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
-      "position": [250, 300]
+      "position": [200, 300]
     },
     {
       "parameters": {
@@ -24,7 +24,7 @@
       "name": "Get Latest PS5 Video",
       "type": "n8n-nodes-base.youtube",
       "typeVersion": 1,
-      "position": [500, 300],
+      "position": [450, 300],
       "credentials": {
         "youtubeOAuth2": "YOUR_YOUTUBE_OAUTH"
       }
@@ -36,7 +36,7 @@
       "name": "Download Low-res for Analysis",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [750, 300]
+      "position": [700, 300]
     },
     {
       "parameters": {
@@ -50,10 +50,10 @@
           "features": ["SHOT_CHANGE_DETECTION"]
         }
       },
-      "name": "Google Video Intelligence - Scene Detect",
+      "name": "GCP Scene Detection",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
-      "position": [1000, 300],
+      "position": [950, 300],
       "credentials": {
         "googleApi": {
           "serviceAccountEmail": "YOUR_SERVICE_ACCOUNT_EMAIL",
@@ -63,12 +63,12 @@
     },
     {
       "parameters": {
-        "functionCode": "const shots = $json.annotationResults[0].shotAnnotations;\nlet longest = {duration: 0};\nfor (const s of shots) {\n  const start = parseFloat(s.startTimeOffset.seconds || 0) + parseFloat(s.startTimeOffset.nanos || 0) / 1e9;\n  const end = parseFloat(s.endTimeOffset.seconds || 0) + parseFloat(s.endTimeOffset.nanos || 0) / 1e9;\n  const dur = end - start;\n  if (dur > longest.duration) longest = {start, end, duration: dur};\n}\nreturn [{json: longest}];"
+        "functionCode": "const shots = $json.annotationResults[0].shotAnnotations;\nlet longest = {duration:0};\nfor(const s of shots){\n  const start = (s.startTimeOffset.seconds||0) + (s.startTimeOffset.nanos||0)/1e9;\n  const end = (s.endTimeOffset.seconds||0) + (s.endTimeOffset.nanos||0)/1e9;\n  const dur = end-start;\n  if(dur>longest.duration) longest={start,end,duration:dur};\n}\nreturn [{json: longest}];"
       },
-      "name": "Find Longest Scene",
+      "name": "Pick Longest Scene",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
-      "position": [1250, 300]
+      "position": [1200, 300]
     },
     {
       "parameters": {
@@ -77,7 +77,7 @@
       "name": "Download Full-res & Clip",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [1500, 300]
+      "position": [1450, 300]
     },
     {
       "parameters": {
@@ -89,7 +89,7 @@
       "name": "Upload to GCS Bucket",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
-      "position": [1750, 150],
+      "position": [1700, 150],
       "credentials": {
         "googleApi": {
           "serviceAccountEmail": "YOUR_SERVICE_ACCOUNT_EMAIL",
@@ -102,49 +102,38 @@
         "videoPath": "/tmp/short.mp4",
         "title": "PS5 Highlight",
         "description": "Auto-clipped PS5 highlight.",
-        "tags": ["PS5", "Gaming", "Shorts"],
+        "tags": ["PS5","Gaming","Shorts"],
         "privacyStatus": "public"
       },
       "name": "Upload to YouTube Shorts",
       "type": "n8n-nodes-base.youtube",
       "typeVersion": 1,
-      "position": [1750, 450],
+      "position": [1700, 450],
       "credentials": {
         "youtubeOAuth2": "YOUR_YOUTUBE_OAUTH"
       }
+    },
+    {
+      "parameters": {
+        "command": "rm -f /tmp/video_low.mp4 /tmp/video_full.mp4 /tmp/short.mp4"
+      },
+      "name": "Cleanup Temp Files",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1950, 300]
     }
   ],
   "connections": {
-    "Set Channel ID": {
-      "main": [
-        [{ "node": "Get Latest PS5 Video", "type": "main", "index": 0 }]
-      ]
-    },
-    "Get Latest PS5 Video": {
-      "main": [
-        [{ "node": "Download Low-res for Analysis", "type": "main", "index": 0 }]
-      ]
-    },
-    "Download Low-res for Analysis": {
-      "main": [
-        [{ "node": "Google Video Intelligence - Scene Detect", "type": "main", "index": 0 }]
-      ]
-    },
-    "Google Video Intelligence - Scene Detect": {
-      "main": [
-        [{ "node": "Find Longest Scene", "type": "main", "index": 0 }]
-      ]
-    },
-    "Find Longest Scene": {
-      "main": [
-        [{ "node": "Download Full-res & Clip", "type": "main", "index": 0 }]
-      ]
-    },
-    "Download Full-res & Clip": {
-      "main": [
-        { "node": "Upload to GCS Bucket", "type": "main", "index": 0 },
-        { "node": "Upload to YouTube Shorts", "type": "main", "index": 0 }
-      ]
-    }
+    "Set Channel ID": { "main": [[{"node":"Get Latest PS5 Video","type":"main","index":0}]] },
+    "Get Latest PS5 Video": { "main": [[{"node":"Download Low-res for Analysis","type":"main","index":0}]] },
+    "Download Low-res for Analysis": { "main": [[{"node":"GCP Scene Detection","type":"main","index":0}]] },
+    "GCP Scene Detection": { "main": [[{"node":"Pick Longest Scene","type":"main","index":0}]] },
+    "Pick Longest Scene": { "main": [[{"node":"Download Full-res & Clip","type":"main","index":0}]] },
+    "Download Full-res & Clip": { "main": [
+      [{"node":"Upload to GCS Bucket","type":"main","index":0}],
+      [{"node":"Upload to YouTube Shorts","type":"main","index":0}]
+    ]},
+    "Upload to GCS Bucket": { "main": [[{"node":"Cleanup Temp Files","type":"main","index":0}]] },
+    "Upload to YouTube Shorts": { "main": [[{"node":"Cleanup Temp Files","type":"main","index":0}]] }
   }
 }
