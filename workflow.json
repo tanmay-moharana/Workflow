@@ -1,5 +1,5 @@
 {
-  "name": "Gaming Highlights → YouTube Shorts",
+  "name": "Gaming Highlights → YouTube Shorts (Connected Layout)",
   "nodes": [
     {
       "parameters": {
@@ -11,7 +11,7 @@
       "name": "Webhook Form (GET)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [250, 200]
+      "position": [100, 200]
     },
     {
       "parameters": {
@@ -21,7 +21,7 @@
       "name": "Return HTML Form",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
-      "position": [500, 200]
+      "position": [350, 200]
     },
     {
       "parameters": {
@@ -33,7 +33,7 @@
       "name": "Webhook Form (POST)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [250, 400]
+      "position": [100, 400]
     },
     {
       "parameters": {
@@ -43,7 +43,7 @@
       "name": "Download Video (yt-dlp)",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [500, 400]
+      "position": [350, 400]
     },
     {
       "parameters": {
@@ -61,7 +61,7 @@
       "name": "Google Video Intelligence",
       "type": "n8n-nodes-base.googleCloudVideoIntelligence",
       "typeVersion": 1,
-      "position": [750, 400],
+      "position": [600, 400],
       "credentials": {
         "googleApi": "Google Service Account"
       }
@@ -74,7 +74,7 @@
       "name": "Filter Safe Gaming Clips",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
-      "position": [1000, 400]
+      "position": [850, 400]
     },
     {
       "parameters": {
@@ -84,7 +84,7 @@
       "name": "Clip Scene (FFmpeg)",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [1250, 400]
+      "position": [1100, 400]
     },
     {
       "parameters": {
@@ -94,7 +94,7 @@
       "name": "Generate Gaming Titles",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
-      "position": [1500, 400]
+      "position": [1350, 400]
     },
     {
       "parameters": {
@@ -108,7 +108,7 @@
       "name": "Upload to YouTube",
       "type": "n8n-nodes-base.youtube",
       "typeVersion": 1,
-      "position": [1750, 400],
+      "position": [1600, 400],
       "credentials": {
         "youtubeOAuth2Api": "YouTube OAuth"
       }
@@ -121,7 +121,7 @@
       "name": "Cleanup",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [2000, 400]
+      "position": [1850, 400]
     }
   ],
   "connections": {
