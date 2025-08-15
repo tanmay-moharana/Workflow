@@ -1,140 +1,138 @@
 {
-  "name": "PS5 AI Highlight → YouTube Shorts",
+  "name": "Gaming Highlights → YouTube Shorts",
   "nodes": [
     {
       "parameters": {
-        "url": "https://www.googleapis.com/youtube/v3/search",
-        "options": {},
-        "queryParametersUi": {
-          "parameter": [
-            { "name": "key", "value": "YOUR_YOUTUBE_API_KEY" },
-            { "name": "channelId", "value": "YOUR_CHANNEL_ID" },
-            { "name": "order", "value": "date" },
-            { "name": "part", "value": "snippet" },
-            { "name": "type", "value": "video" },
-            { "name": "maxResults", "value": "1" }
-          ]
-        }
+        "httpMethod": "GET",
+        "path": "youtube-form",
+        "responseMode": "lastNode"
       },
-      "name": "Get Latest YouTube Video",
-      "type": "n8n-nodes-base.httpRequest",
+      "id": "1",
+      "name": "Webhook Form (GET)",
+      "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [300, 300]
+      "position": [250, 200]
     },
     {
       "parameters": {
-        "command": "yt-dlp -f 'mp4[height<=360]' -o \"/tmp/video_low.mp4\" \"https://www.youtube.com/watch?v={{$json.items[0].id.videoId}}\""
+        "functionCode": "return [{ json: { html: `<html><body><h1>Submit YouTube Gaming URL</h1><form method='POST' action='/webhook/youtube-form'><input type='text' name='video_url' placeholder='YouTube URL' style='width:300px'/><br><br><input type='text' name='game_name' placeholder='Game Name' style='width:300px'/><br><br><input type='submit' value='Submit'/></form></body></html>` } }];"
       },
-      "name": "Download Low-res Video",
+      "id": "2",
+      "name": "Return HTML Form",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "youtube-form",
+        "responseMode": "lastNode"
+      },
+      "id": "3",
+      "name": "Webhook Form (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 400]
+    },
+    {
+      "parameters": {
+        "command": "yt-dlp --output '/tmp/video.mp4' {{$json[\"body\"][\"video_url\"]}}"
+      },
+      "id": "4",
+      "name": "Download Video (yt-dlp)",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [600, 300]
+      "position": [500, 400]
     },
     {
       "parameters": {
         "authentication": "serviceAccount",
-        "url": "https://videointelligence.googleapis.com/v1/videos:annotate",
-        "options": {
-          "bodyContentType": "json",
-          "responseFormat": "json",
-          "query": [
-            { "name": "key", "value": "YOUR_GCP_API_KEY" }
-          ]
-        },
-        "bodyParametersJson": "={\n  \"features\": [\"SHOT_CHANGE_DETECTION\"],\n  \"inputContent\": $binary.data.toString('base64')\n}"
+        "resource": "videos",
+        "operation": "annotate",
+        "features": [
+          "SHOT_CHANGE_DETECTION",
+          "LABEL_DETECTION",
+          "EXPLICIT_CONTENT_DETECTION"
+        ],
+        "videoPath": "/tmp/video.mp4"
       },
-      "name": "Analyze with GCP Video Intelligence",
-      "type": "n8n-nodes-base.httpRequest",
+      "id": "5",
+      "name": "Google Video Intelligence",
+      "type": "n8n-nodes-base.googleCloudVideoIntelligence",
       "typeVersion": 1,
-      "position": [900, 300]
+      "position": [750, 400],
+      "credentials": {
+        "googleApi": "Google Service Account"
+      }
     },
     {
       "parameters": {
-        "functionCode": "const shots = $json.annotationResults[0].shotAnnotations;\nlet longest = { duration: 0, start: '00:00:00', durationStr: '00:00:00' };\n\nshots.forEach(shot => {\n  const startSec = (shot.startTimeOffset.seconds || 0) + (shot.startTimeOffset.nanos || 0) / 1e9;\n  const endSec = (shot.endTimeOffset.seconds || 0) + (shot.endTimeOffset.nanos || 0) / 1e9;\n  const duration = endSec - startSec;\n  if (duration > longest.duration) {\n    longest.duration = duration;\n    longest.start = new Date(startSec * 1000).toISOString().substr(11, 8);\n    longest.durationStr = new Date(duration * 1000).toISOString().substr(11, 8);\n  }\n});\n\nreturn [{ json: { start: longest.start, duration: longest.durationStr, videoId: $items(0).json.items[0].id.videoId } }];"
+        "functionCode": "// Filter safe gaming clips\nconst results = items[0].json.annotationResults[0];\nconst safeScenes = [];\nfor (const shot of results.shotAnnotations) {\n  const startSec = parseFloat(shot.startTimeOffset.replace('s','')) || 0;\n  const endSec = parseFloat(shot.endTimeOffset.replace('s','')) || 0;\n  const duration = endSec - startSec;\n  if (duration < 3 || duration > 60) continue;\n\n  let isSafe = true;\n  if (results.explicitAnnotation && results.explicitAnnotation.frames) {\n    const relatedFrames = results.explicitAnnotation.frames.filter(f => {\n      const t = parseFloat(f.timeOffset.replace('s','')) || 0;\n      return t >= startSec && t <= endSec;\n    });\n    if (relatedFrames.some(f => f.pornographyLikelihood && f.pornographyLikelihood !== 'VERY_UNLIKELY' && f.pornographyLikelihood !== 'UNLIKELY')) isSafe = false;\n  }\n  if (results.segmentLabelAnnotations) {\n    const segmentLabels = results.segmentLabelAnnotations.map(l => l.entity.description.toLowerCase());\n    const badLabels = ['weapon','violence','gore'];\n    if (segmentLabels.some(lbl => badLabels.includes(lbl))) isSafe = false;\n  }\n  if (isSafe) {\n    const labels = results.segmentLabelAnnotations.map(l => l.entity.description);\n    safeScenes.push({ start: startSec, end: endSec, labels });\n  }\n}\n\n// Take top 3 clips by duration\nsafeScenes.sort((a,b)=> (b.end-a.start)-(a.end-a.start));\nreturn safeScenes.slice(0,3).map(scene => ({ json: scene }));"
       },
-      "name": "Pick Longest Scene",
+      "id": "6",
+      "name": "Filter Safe Gaming Clips",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
-      "position": [1200, 300]
+      "position": [1000, 400]
     },
     {
       "parameters": {
-        "command": "yt-dlp -f mp4 -o \"/tmp/video.mp4\" \"https://www.youtube.com/watch?v={{$json.videoId}}\" && ffmpeg -i /tmp/video.mp4 -ss {{$json.start}} -t {{$json.duration}} -vf \"scale=1080:1920\" -c:a copy /tmp/short.mp4"
+        "command": "ffmpeg -i /tmp/video.mp4 -ss {{$json.start}} -to {{$json.end}} -vf \"scale=1080:1920\" -c:a copy /tmp/clip{{$itemIndex}}.mp4"
       },
-      "name": "Download Full-res & Clip",
+      "id": "7",
+      "name": "Clip Scene (FFmpeg)",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [1500, 300]
+      "position": [1250, 400]
     },
     {
       "parameters": {
-        "authentication": "oAuth2",
-        "url": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
-        "options": {
-          "bodyContentType": "json",
-          "responseFormat": "json"
-        },
-        "bodyParametersJson": "={\n  \"snippet\": {\n    \"title\": \"Epic PS5 Highlight #shorts\",\n    \"description\": \"Auto-generated highlight from latest PS5 gameplay\",\n    \"tags\": [\"PS5\", \"Gaming\", \"Shorts\"]\n  },\n  \"status\": {\n    \"privacyStatus\": \"public\"\n  }\n}",
-        "sendBinaryData": true,
-        "binaryPropertyName": "data"
+        "functionCode": "const hashtags = ['#Shorts','#Gaming',`#${$json.game_name.replace(/\\s+/g,'')}`];\nreturn items.map((item,index)=>({\n  json: {\n    videoPath:`/tmp/clip${index}.mp4`,\n    title: item.json.labels.length>0?`${item.json.labels.slice(0,2).join(' ')} in ${$json.game_name} 🎮🔥 ${hashtags.join(' ')}`:`Epic ${$json.game_name} Moment #${index+1} ${hashtags.join(' ')}`,\n    description: `Auto-clipped highlight from ${$json.game_name} gameplay. Enjoy! ${hashtags.join(' ')}`\n  }\n}));"
       },
-      "name": "Upload to YouTube Shorts",
-      "type": "n8n-nodes-base.httpRequest",
+      "id": "8",
+      "name": "Generate Gaming Titles",
+      "type": "n8n-nodes-base.function",
       "typeVersion": 1,
-      "position": [1800, 300]
+      "position": [1500, 400]
     },
     {
       "parameters": {
-        "command": "rm /tmp/video_low.mp4 /tmp/video.mp4 /tmp/short.mp4"
+        "video": "={{$json[\"videoPath\"]}}",
+        "title": "={{$json[\"title\"]}}",
+        "description": "={{$json[\"description\"]}}",
+        "categoryId": "20",
+        "privacyStatus": "public"
       },
+      "id": "9",
+      "name": "Upload to YouTube",
+      "type": "n8n-nodes-base.youtube",
+      "typeVersion": 1,
+      "position": [1750, 400],
+      "credentials": {
+        "youtubeOAuth2Api": "YouTube OAuth"
+      }
+    },
+    {
+      "parameters": {
+        "command": "rm /tmp/video.mp4 /tmp/clip*.mp4"
+      },
+      "id": "10",
       "name": "Cleanup",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [2100, 300]
+      "position": [2000, 400]
     }
   ],
   "connections": {
-    "Get Latest YouTube Video": {
-      "main": [
-        [
-          { "node": "Download Low-res Video", "type": "main", "index": 0 }
-        ]
-      ]
-    },
-    "Download Low-res Video": {
-      "main": [
-        [
-          { "node": "Analyze with GCP Video Intelligence", "type": "main", "index": 0 }
-        ]
-      ]
-    },
-    "Analyze with GCP Video Intelligence": {
-      "main": [
-        [
-          { "node": "Pick Longest Scene", "type": "main", "index": 0 }
-        ]
-      ]
-    },
-    "Pick Longest Scene": {
-      "main": [
-        [
-          { "node": "Download Full-res & Clip", "type": "main", "index": 0 }
-        ]
-      ]
-    },
-    "Download Full-res & Clip": {
-      "main": [
-        [
-          { "node": "Upload to YouTube Shorts", "type": "main", "index": 0 }
-        ]
-      ]
-    },
-    "Upload to YouTube Shorts": {
-      "main": [
-        [
-          { "node": "Cleanup", "type": "main", "index": 0 }
-        ]
-      ]
-    }
-  }
+    "Webhook Form (GET)": { "main":[[{"node":"Return HTML Form","type":"main","index":0}]] },
+    "Webhook Form (POST)": { "main":[[{"node":"Download Video (yt-dlp)","type":"main","index":0}]] },
+    "Download Video (yt-dlp)": { "main":[[{"node":"Google Video Intelligence","type":"main","index":0}]] },
+    "Google Video Intelligence": { "main":[[{"node":"Filter Safe Gaming Clips","type":"main","index":0}]] },
+    "Filter Safe Gaming Clips": { "main":[[{"node":"Clip Scene (FFmpeg)","type":"main","index":0}]] },
+    "Clip Scene (FFmpeg)": { "main":[[{"node":"Generate Gaming Titles","type":"main","index":0}]] },
+    "Generate Gaming Titles": { "main":[[{"node":"Upload to YouTube","type":"main","index":0}]] },
+    "Upload to YouTube": { "main":[[{"node":"Cleanup","type":"main","index":0}]] }
+  },
+  "active": false
 }
