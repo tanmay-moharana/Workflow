@@ -1,76 +1,62 @@
 {
-  "name": "Auto: Latest YouTube → Multi-Shorts V3 Complete with Captions",
+  "name": "Auto: Latest YouTube → Multi-Shorts Complete",
   "nodes": [
     {
       "id": "1",
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.cron",
       "typeVersion": 1,
-      "position": [200,200],
-      "parameters":{"mode":"everyDay","hour":18,"minute":0}
+      "position": [200, 200],
+      "parameters": {"mode": "everyDay", "hour": 18, "minute": 0}
     },
     {
       "id": "2",
       "name": "YouTube Search Latest",
       "type": "n8n-nodes-base.youtube",
       "typeVersion": 2,
-      "position": [420,200],
-      "parameters":{
-        "resource":"search",
-        "operation":"search",
-        "order":"date",
-        "maxResults":1,
-        "forMine":true,
-        "type":"video"
-      },
-      "credentials":{"youtubeOAuth2Api":"YouTube OAuth"}
+      "position": [420, 200],
+      "parameters": {"resource": "search","operation":"search","order":"date","maxResults":1,"forMine":true,"type":"video"},
+      "credentials": {"youtubeOAuth2Api": "YouTube OAuth"}
     },
     {
       "id": "3",
       "name": "Map Video Data",
       "type": "n8n-nodes-base.function",
       "typeVersion": 2,
-      "position": [640,200],
-      "parameters":{"functionCode":"const out=[];for(const item of items){const r=item.json;const videoId=r.id?.videoId||r.id;const title=r.snippet?.title||'';const publishedAt=r.snippet?.publishedAt||'';out.push({json:{videoId,videoUrl:`https://www.youtube.com/watch?v=${videoId}`,title,publishedAt}});}return out;"}
+      "position": [640, 200],
+      "parameters": {"functionCode": "const out=[];for(const item of items){const r=item.json;const videoId=r.id?.videoId||r.id;const title=r.snippet?.title||'';const publishedAt=r.snippet?.publishedAt||'';out.push({json:{videoId,videoUrl:`https://www.youtube.com/watch?v=${videoId}`,title,publishedAt}});}return out;"}
     },
     {
       "id": "4",
       "name": "Check Processed",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4,
-      "position": [860,200],
-      "parameters":{
-        "operation":"lookup",
-        "sheetId":"YOUR_SHEET_ID",
-        "range":"Processed!A:A",
-        "lookupColumn":"videoId",
-        "lookupValue":"={{$json[\"videoId\"]}}",
-        "options":{"returnAllMatches":false}
-      },
-      "credentials":{"googleSheetsOAuth2Api":"Google Sheets OAuth"}
+      "position": [860, 200],
+      "parameters": {"operation":"lookup","sheetId":"YOUR_SHEET_ID","range":"Processed!A:A","lookupColumn":"videoId","lookupValue":"={{$json[\"videoId\"]}}","options":{"returnAllMatches":false}},
+      "credentials": {"googleSheetsOAuth2Api":"Google Sheets OAuth"}
     },
     {
       "id": "5",
       "name": "IF Already Processed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1080,200],
-      "parameters":{"conditions":{"boolean":[{"value1":"={{$items(\"Check Processed\",0,0).length>0}}"}]}}
+      "position": [1080, 200],
+      "parameters": {"conditions":{"boolean":[{"value1":"={{$items(\"Check Processed\",0,0).length>0}}"}]}}
     },
     {
       "id": "6",
       "name": "Stop (Already processed)",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [1300,120]
+      "position": [1300, 120]
     },
     {
       "id": "7",
       "name": "Check Captions",
       "type": "n8n-nodes-base.youtube",
       "typeVersion": 2,
-      "position": [1300,280],
-      "parameters":{"resource":"captions","operation":"list","videoId":"={{$json.videoId}}"},
+      "position": [1300, 280],
+      "parameters": {"resource":"captions","operation":"list","videoId":"={{$json.videoId}}"},
       "credentials":{"youtubeOAuth2Api":"YouTube OAuth"}
     },
     {
@@ -78,16 +64,16 @@
       "name": "IF Captions Available?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1500,280],
-      "parameters":{"conditions":{"boolean":[{"value1":"={{$json.items && $json.items.length>0}}"}]}}
+      "position": [1500, 280],
+      "parameters": {"conditions":{"boolean":[{"value1":"={{$json.items && $json.items.length>0}}"}]}}
     },
     {
       "id": "9",
       "name": "Download & Parse Captions",
       "type": "n8n-nodes-base.youtube",
       "typeVersion": 2,
-      "position": [1700,240],
-      "parameters":{"resource":"captions","operation":"download","captionId":"={{$json.items[0].id}}"},
+      "position": [1700, 240],
+      "parameters": {"resource":"captions","operation":"download","captionId":"={{$json.items[0].id}}"},
       "credentials":{"youtubeOAuth2Api":"YouTube OAuth"}
     },
     {
@@ -95,32 +81,32 @@
       "name": "Use Captions for Gemini",
       "type": "n8n-nodes-base.function",
       "typeVersion": 2,
-      "position": [1900,240],
-      "parameters":{"functionCode":"return [{json:{...$json,transcript=$json.captionsText||''}}];"}
+      "position": [1900, 240],
+      "parameters": {"functionCode": "return [{json:{...$json,transcript=$json.captionsText||''}}];"}
     },
     {
       "id": "11",
       "name": "Download Video (yt-dlp)",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [1700,320],
-      "parameters":{"command":"yt-dlp -f mp4 -o \"/tmp/latest.mp4\" \"={{$json.videoUrl}}\""}
+      "position": [1700, 320],
+      "parameters": {"command": "yt-dlp -f mp4 -o \"/tmp/latest.mp4\" \"={{$json.videoUrl}}\""}
     },
     {
       "id": "12",
       "name": "Extract Audio",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [1920,320],
-      "parameters":{"command":"ffmpeg -y -i /tmp/latest.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 /tmp/latest.wav"}
+      "position": [1920, 320],
+      "parameters": {"command":"ffmpeg -y -i /tmp/latest.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 /tmp/latest.wav"}
     },
     {
       "id": "13",
       "name": "Upload Audio to GCS",
       "type": "n8n-nodes-base.googleCloudStorage",
       "typeVersion": 1,
-      "position": [2140,320],
-      "parameters":{"operation":"upload","bucket":"YOUR_BUCKET","filePath":"/tmp/latest.wav","destination":"ingest/{{ $json.videoId }}.wav"},
+      "position": [2140, 320],
+      "parameters": {"operation":"upload","bucket":"YOUR_BUCKET","filePath":"/tmp/latest.wav","destination":"ingest/{{ $json.videoId }}.wav"},
       "credentials":{"googleCloudStorageOAuth2Api":"GCS OAuth"}
     },
     {
@@ -128,15 +114,8 @@
       "name": "Speech-to-Text",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 3,
-      "position": [2360,320],
-      "parameters":{
-        "url":"https://speech.googleapis.com/v1/speech:recognize",
-        "method":"POST",
-        "authentication":"oAuth2",
-        "sendBody":true,
-        "jsonParameters":true,
-        "bodyParametersJson":"{\"config\":{\"encoding\":\"LINEAR16\",\"languageCode\":\"en-US\",\"enableAutomaticPunctuation\":true},\"audio\":{\"uri\":\"gs://YOUR_BUCKET/ingest/{{ $json.videoId }}.wav\"}}"
-      },
+      "position": [2360, 320],
+      "parameters": {"url":"https://speech.googleapis.com/v1/speech:recognize","method":"POST","authentication":"oAuth2","sendBody":true,"jsonParameters":true,"bodyParametersJson":"{\"config\":{\"encoding\":\"LINEAR16\",\"languageCode\":\"en-US\",\"enableAutomaticPunctuation\":true},\"audio\":{\"uri\":\"gs://YOUR_BUCKET/ingest/{{ $json.videoId }}.wav\"}}"},
       "credentials":{"oAuth2Api":"Google Cloud OAuth"}
     },
     {
@@ -144,147 +123,35 @@
       "name": "Prepare Transcript STT",
       "type": "n8n-nodes-base.function",
       "typeVersion": 2,
-      "position": [2580,320],
-      "parameters":{"functionCode":"const resp=items[0].json;let transcript='';try{const results=resp.results||[];transcript=results.map(r=>r.alternatives?.[0]?.transcript||'').join('\\n');}catch(e){}return [{json:{...$json,transcript}}];"}
+      "position": [2580, 320],
+      "parameters": {"functionCode":"const resp=items[0].json;let transcript='';try{const results=resp.results||[];transcript=results.map(r=>r.alternatives?.[0]?.transcript||'').join('\\n');}catch(e){}return [{json:{...$json,transcript}}];"}
     },
     {
       "id": "16",
       "name": "Gemini Highlights",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 3,
-      "position": [2800,280],
-      "parameters":{
-        "url":"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent",
-        "method":"POST",
-        "authentication":"headerAuth",
-        "sendBody":true,
-        "jsonParameters":true,
-        "headerParametersJson":"{\"Content-Type\":\"application/json\",\"x-goog-api-key\":\"YOUR_GEMINI_API_KEY\"}",
-        "bodyParametersJson":"{\"contents\":[{\"parts\":[{\"text\":\"You are an editor for gaming Shorts. Given the transcript below, return JSON highlights: start_time,end_time,suggested_title,suggested_description, each clip <= 59s. Transcript:\\n{{ $json.transcript }}\"}]}]}"
-      },
+      "position": [2800, 280],
+      "parameters": {"url":"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent","method":"POST","authentication":"headerAuth","sendBody":true,"jsonParameters":true,"headerParametersJson":"{\"Content-Type\":\"application/json\",\"x-goog-api-key\":\"YOUR_GEMINI_API_KEY\"}","bodyParametersJson":"{\"contents\":[{\"parts\":[{\"text\":\"You are an editor for gaming Shorts. Given the transcript below, return JSON highlights: start_time,end_time,suggested_title,suggested_description, each clip <= 59s. Transcript:\\n{{ $json.transcript }}\"}]}]}"},
       "credentials":{"httpHeaderAuth":"Gemini API Key (Header)"}
-    },
-    {
-      "id": "17",
-      "name": "Parse Highlights → Items",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 2,
-      "position": [3020,280],
-      "parameters":{"functionCode":"const raw=items[0].json;let text='';try{text=raw.candidates?.[0]?.content?.parts?.[0]?.text||'';}catch(e){}let parsed={highlights:[]};try{parsed=JSON.parse(text);}catch(e){}const arr=parsed.highlights||[];return arr.map((h,i)=>({json:{...$json,clipIndex:i+1,start_time:h.start_time,end_time:h.end_time,label:h.label,suggested_title:h.suggested_title,suggested_description:h.suggested_description}}));"}
-    },
-    {
-      "id": "18",
-      "name": "Top 5 Highlights + Hashtags",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 2,
-      "position": [3240,280],
-      "parameters":{"functionCode":"const gameTitle=$json.title.match(/\\[(.*?)\\]/)?.[1]||'Gaming';const highlights=items.slice(0,5).map(h=>{h.json.suggested_title=`${h.json.suggested_title} | ${gameTitle} #shorts #gaming #${gameTitle.replace(/\\s/g,'')}`;h.json.suggested_description=`${h.json.suggested_description}\\nOriginal Video: ${$json.videoUrl}\\n#shorts #gaming #${gameTitle.replace(/\\s/g,'')}`;return h;});return highlights;"}
-    },
-    {
-      "id": "19",
-      "name": "FFmpeg → Clip Short",
-      "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
-      "position": [3460,220],
-      "parameters":{"command":"ffmpeg -y -i /tmp/latest.mp4 -ss {{ $json.start_time }} -to {{ $json.end_time }} -c copy /tmp/short_{{ $json.clipIndex }}.mp4"}
-    },
-    {
-      "id": "20",
-      "name": "FFmpeg → Thumbnail",
-      "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
-      "position": [3680,220],
-      "parameters":{"command":"ffmpeg -y -i /tmp/short_{{ $json.clipIndex }}.mp4 -ss 00:00:10 -vframes 1 /tmp/thumb_{{ $json.clipIndex }}.jpg"}
-    },
-    {
-      "id": "21",
-      "name": "YouTube Upload (Short)",
-      "type": "n8n-nodes-base.youtube",
-      "typeVersion": 2,
-      "position": [3900,220],
-      "parameters":{"resource":"video","operation":"upload","videoPath":"/tmp/short_={{$json.clipIndex}}.mp4","title":"={{$json[\"suggested_title\"]}}","description":"={{$json[\"suggested_description\"]}}","additionalFields":{"categoryId":"20","defaultLanguage":"en","tags":["gaming","shorts","highlight"],"privacyStatus":"public","notifySubscribers":false}},
-      "credentials":{"youtubeOAuth2Api":"YouTube OAuth"}
-    },
-    {
-      "id": "22",
-      "name": "YouTube → Set Thumbnail",
-      "type": "n8n-nodes-base.youtube",
-      "typeVersion": 2,
-      "position": [4120,220],
-      "parameters":{"resource":"thumbnail","operation":"upload","videoId":"={{$json[\"id\"]}}","thumbnailPath":"/tmp/thumb_={{$json.clipIndex}}.jpg"},
-      "credentials":{"youtubeOAuth2Api":"YouTube OAuth"}
-    },
-    {
-      "id": "23",
-      "name": "GCS Upload Short",
-      "type": "n8n-nodes-base.googleCloudStorage",
-      "typeVersion": 1,
-      "position": [4340,180],
-      "parameters":{"operation":"upload","bucket":"YOUR_BUCKET","filePath":"/tmp/short_={{$json[\"clipIndex\"]}}.mp4","destination":"shorts/{{ $json[\"videoId\"] }}/short_{{ $json[\"clipIndex\"] }}.mp4"},
-      "credentials":{"googleCloudStorageOAuth2Api":"GCS OAuth"}
-    },
-    {
-      "id": "24",
-      "name": "GCS Upload Thumbnail",
-      "type": "n8n-nodes-base.googleCloudStorage",
-      "typeVersion": 1,
-      "position": [4340,260],
-      "parameters":{"operation":"upload","bucket":"YOUR_BUCKET","filePath":"/tmp/thumb_={{$json[\"clipIndex\"]}}.jpg","destination":"shorts/{{ $json[\"videoId\"] }}/thumb_{{ $json[\"clipIndex\"] }}.jpg"},
-      "credentials":{"googleCloudStorageOAuth2Api":"GCS OAuth"}
-    },
-    {
-      "id": "25",
-      "name": "Compose Log Row",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 2,
-      "position": [4560,220],
-      "parameters":{"functionCode":"const shortId=$json.id||$json.videoId||'';const shortUrl=shortId?`https://www.youtube.com/watch?v=${shortId}`:'';return [{json:{videoId:$json.videoId,clipIndex:$json.clipIndex,title:$json.suggested_title,description:$json.suggested_description,shortUrl}}];"}
-    },
-    {
-      "id": "26",
-      "name": "Append to Google Sheet (Shorts)",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4,
-      "position": [4780,220],
-      "parameters":{"operation":"append","sheetId":"YOUR_SHEET_ID","range":"Shorts!A1","options":{"valueInputMode":"USER_ENTERED"}},
-      "credentials":{"googleSheetsOAuth2Api":"Google Sheets OAuth"}
-    },
-    {
-      "id": "27",
-      "name": "Mark Processed",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4,
-      "position": [5000,220],
-      "parameters":{"operation":"append","sheetId":"YOUR_SHEET_ID","range":"Processed!A1","options":{"valueInputMode":"USER_ENTERED"},"values":[["={{$json[\"videoId\"]}}"]]},
-      "credentials":{"googleSheetsOAuth2Api":"Google Sheets OAuth"}
     }
   ],
   "connections": {
-    "Schedule Trigger":{"main":[[{"node":"YouTube Search Latest","type":"main","index":0}]]},
-    "YouTube Search Latest":{"main":[[{"node":"Map Video Data","type":"main","index":0}]]},
-    "Map Video Data":{"main":[[{"node":"Check Processed","type":"main","index":0}]]},
-    "Check Processed":{"main":[[{"node":"IF Already Processed?","type":"main","index":0}]]},
-    "IF Already Processed?":{"main":[[{"node":"Stop (Already processed)","type":"main","index":0}],[{"node":"Check Captions","type":"main","index":0}]]},
-    "Check Captions":{"main":[[{"node":"IF Captions Available?","type":"main","index":0}]]},
-    "IF Captions Available?":{"main":[[{"node":"Download & Parse Captions","type":"main","index":0}],[{"node":"Download Video (yt-dlp)","type":"main","index":0}]]},
-    "Download & Parse Captions":{"main":[[{"node":"Use Captions for Gemini","type":"main","index":0}]]},
-    "Use Captions for Gemini":{"main":[[{"node":"Gemini Highlights","type":"main","index":0}]]},
-    "Download Video (yt-dlp)":{"main":[[{"node":"Extract Audio","type":"main","index":0}]]},
-    "Extract Audio":{"main":[[{"node":"Upload Audio to GCS","type":"main","index":0}]]},
-    "Upload Audio to GCS":{"main":[[{"node":"Speech-to-Text","type":"main","index":0}]]},
-    "Speech-to-Text":{"main":[[{"node":"Prepare Transcript STT","type":"main","index":0}]]},
-    "Prepare Transcript STT":{"main":[[{"node":"Gemini Highlights","type":"main","index":0}]]},
-    "Gemini Highlights":{"main":[[{"node":"Parse Highlights → Items","type":"main","index":0}]]},
-    "Parse Highlights → Items":{"main":[[{"node":"Top 5 Highlights + Hashtags","type":"main","index":0}]]},
-    "Top 5 Highlights + Hashtags":{"main":[[{"node":"FFmpeg → Clip Short","type":"main","index":0}]]},
-    "FFmpeg → Clip Short":{"main":[[{"node":"FFmpeg → Thumbnail","type":"main","index":0}]]},
-    "FFmpeg → Thumbnail":{"main":[[{"node":"YouTube Upload (Short)","type":"main","index":0}]]},
-    "YouTube Upload (Short)":{"main":[[{"node":"YouTube → Set Thumbnail","type":"main","index":0},{"node":"GCS Upload Short","type":"main","index":0}]]},
-    "YouTube → Set Thumbnail":{"main":[[{"node":"GCS Upload Thumbnail","type":"main","index":0}]]},
-    "GCS Upload Thumbnail":{"main":[[{"node":"Compose Log Row","type":"main","index":0}]]},
-    "GCS Upload Short":{"main":[[{"node":"Compose Log Row","type":"main","index":0}]]},
-    "Compose Log Row":{"main":[[{"node":"Append to Google Sheet (Shorts)","type":"main","index":0},{"node":"Mark Processed","type":"main","index":0}]]}
+    "Schedule Trigger": {"main": [[{"node": "YouTube Search Latest","type": "main","index":0}]]},
+    "YouTube Search Latest": {"main": [[{"node": "Map Video Data","type":"main","index":0}]]},
+    "Map Video Data": {"main": [[{"node": "Check Processed","type":"main","index":0}]]},
+    "Check Processed": {"main": [[{"node": "IF Already Processed?","type":"main","index":0}]]},
+    "IF Already Processed?": {"main": [[{"node": "Stop (Already processed)","type":"main","index":0}],[{"node": "Check Captions","type":"main","index":1}]]},
+    "Check Captions": {"main": [[{"node": "IF Captions Available?","type":"main","index":0}]]},
+    "IF Captions Available?": {"main": [[{"node": "Download & Parse Captions","type":"main","index":0}],[{"node": "Download Video (yt-dlp)","type":"main","index":1}]]},
+    "Download & Parse Captions": {"main": [[{"node": "Use Captions for Gemini","type":"main","index":0}]]},
+    "Use Captions for Gemini": {"main": [[{"node": "Gemini Highlights","type":"main","index":0}]]},
+    "Download Video (yt-dlp)": {"main": [[{"node": "Extract Audio","type":"main","index":0}]]},
+    "Extract Audio": {"main": [[{"node": "Upload Audio to GCS","type":"main","index":0}]]},
+    "Upload Audio to GCS": {"main": [[{"node": "Speech-to-Text","type":"main","index":0}]]},
+    "Speech-to-Text": {"main": [[{"node": "Prepare Transcript STT","type":"main","index":0}]]},
+    "Prepare Transcript STT": {"main": [[{"node": "Gemini Highlights","type":"main","index":0}]]}
   },
-  "pinData": {},
-  "meta":{"templateCredsNote":"Replace YOUR_BUCKET, YOUR_SHEET_ID, YOUR_GEMINI_API_KEY and set OAuth credentials: YouTube OAuth, Google Sheets OAuth, Google Cloud OAuth/GCS OAuth."}
+  "active": false,
+  "settings": {}
 }
