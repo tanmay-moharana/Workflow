@@ -1,279 +1,140 @@
 {
-  "name": "Automated PS5 Gaming Highlights to YouTube Shorts",
+  "name": "YouTube Gaming → Multiple Shorts",
   "nodes": [
     {
       "parameters": {
-        "command": "yt-dlp -f 'best[ext=mp4]' --output '/tmp/video.mp4' 'https://www.youtube.com/watch?v={{ $json.id }}'"
+        "path": "gaming-video",
+        "httpMethod": "POST"
       },
-      "id": "314f85e3-469d-4874-a032-4ca1215b0f59",
-      "name": "1. Download Video",
+      "id": "1",
+      "name": "Webhook (Form Input)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 200]
+    },
+    {
+      "parameters": {
+        "command": "yt-dlp -o /tmp/video.mp4 {{$json[\"body\"][\"youtube_url\"]}}"
+      },
+      "id": "2",
+      "name": "Download Video",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [
-        660,
-        560
-      ],
-      "notes": "Downloads the new video found by the trigger."
+      "position": [400, 200]
     },
     {
       "parameters": {
-        "functionCode": "const results = $json.annotationResults[0];\nconst safeScenes = [];\nif (!results || !results.shotAnnotations) {\n  console.error('No annotation results or shots found.');\n  return [];\n}\n\nfor (const shot of results.shotAnnotations) {\n  const startSec = parseFloat(shot.startTimeOffset.replace('s', '')) || 0;\n  const endSec = parseFloat(shot.endTimeOffset.replace('s', '')) || 0;\n  const duration = endSec - startSec;\n  if (duration < 15 || duration > 59) continue;\n\n  let isSafe = true;\n  if (results.explicitAnnotation && results.explicitAnnotation.frames) {\n    const relatedFrames = results.explicitAnnotation.frames.filter(f => {\n      const t = parseFloat(f.timeOffset.replace('s', '')) || 0;\n      return t >= startSec && t <= endSec;\n    });\n    if (relatedFrames.some(f => f.pornographyLikelihood && !['VERY_UNLIKELY', 'UNLIKELY'].includes(f.pornographyLikelihood))) {\n      isSafe = false;\n    }\n  }\n\n  if (isSafe && results.segmentLabelAnnotations) {\n    const badLabels = ['weapon', 'violence', 'gore', 'gun'];\n    const shotLabels = results.segmentLabelAnnotations.filter(l => {\n      const segmentStart = parseFloat(l.segment.startTimeOffset.replace('s', '')) || 0;\n      const segmentEnd = parseFloat(l.segment.endTimeOffset.replace('s', '')) || 0;\n      return Math.max(startSec, segmentStart) < Math.min(endSec, segmentEnd);\n    }).map(l => l.entity.description.toLowerCase());\n    if (shotLabels.some(lbl => badLabels.includes(lbl))) {\n      isSafe = false;\n    }\n  }\n\n  if (isSafe) {\n    const labels = results.segmentLabelAnnotations?.map(l => l.entity.description) || [];\n    safeScenes.push({ json: { start: startSec, end: endSec, labels: labels } });\n  }\n}\n\nif (safeScenes.length === 0) return [];\nsafeScenes.sort((a, b) => (b.json.end - b.json.start) - (a.json.end - a.json.start));\nreturn safeScenes.slice(0, 3);",
-        "options": {}
-      },
-      "id": "f5f7f3da-a0da-4a6c-95fe-4f9e16d41829",
-      "name": "4. Filter Safe Clips",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 1,
-      "position": [
-        1320,
-        560
-      ],
-      "notes": "Parses the AI analysis to find the top 3 best clips for Shorts between 15 and 59 seconds."
-    },
-    {
-      "parameters": {
-        "command": "ffmpeg -i /tmp/video.mp4 -ss {{ $json.start }} -to {{ $json.end }} -vf \"scale=1080:-2,crop=1080:1920\" -c:a copy -y \"/tmp/clip_{{ $itemIndex }}.mp4\""
-      },
-      "id": "e7b0a3aa-b78c-4a30-80a2-fde978c43ecb",
-      "name": "5. Clip Scene (FFmpeg)",
-      "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
-      "position": [
-        1540,
-        560
-      ],
-      "notes": "Cuts the video and formats it into a 9:16 aspect ratio."
-    },
-    {
-      "parameters": {
-        "authentication": "oAuth2",
-        "operation": "upload",
-        "title": "={{ $json.title }}",
-        "description": "={{ $json.description }}",
-        "privacy": "public",
-        "categoryId": "20",
-        "binaryData": true,
-        "inputDataFieldName": "data"
-      },
-      "id": "1d11ca71-7009-42b9-9159-b9d992985f40",
-      "name": "7. Upload to YouTube",
-      "type": "n8n-nodes-base.youTube",
-      "typeVersion": 3.1,
-      "position": [
-        1980,
-        560
-      ],
-      "credentials": {
-        "youTubeOAuth2Api": {
-          "id": "REPLACE_WITH_YOUR_YOUTUBE_CREDENTIAL_ID",
-          "name": "My YouTube Credential"
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent",
+        "method": "POST",
+        "authentication": "headerAuth",
+        "jsonParameters": true,
+        "options": {},
+        "body": {
+          "contents": [{
+            "parts": [{
+              "text": "Analyze this gaming video and return JSON with 3-5 highlight clips (≤60s each). Include start_time, end_time, suggested_title, suggested_description. JSON only, no text."
+            }]
+          }]
         }
+      },
+      "id": "3",
+      "name": "Gemini Highlight Detection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [600, 200],
+      "credentials": {
+        "httpHeaderAuth": "Gemini API Key"
       }
     },
     {
       "parameters": {
-        "command": "rm -f /tmp/video.mp4 /tmp/clip_*.mp4"
+        "fieldToSplitOut": "json",
+        "options": {}
       },
-      "id": "525a74d1-c30f-48d6-a246-814c40a5a300",
-      "name": "8. Cleanup Files",
-      "type": "n8n-nodes-base.executeCommand",
+      "id": "4",
+      "name": "Split Highlights",
+      "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 1,
-      "position": [
-        2200,
-        560
-      ],
-      "notes": "Deletes temporary files from the server."
+      "position": [800, 200]
     },
     {
       "parameters": {
-        "values": {
-          "string": [
-            {
-              "name": "title",
-              "value": "={{ $json.labels && $json.labels.length > 0 ? $json.labels.slice(0, 2).join(' & ') : 'Awesome PS5 Moment' }} 🔥 #Shorts #Gaming #PS5"
-            },
-            {
-              "name": "description",
-              "value": "Check out the full video! #Gaming #PS5"
-            }
+        "command": "ffmpeg -i /tmp/video.mp4 -ss {{$json[\"start_time\"]}} -to {{$json[\"end_time\"]}} -c copy /tmp/short_{{$json[\"start_time\"]}}.mp4"
+      },
+      "id": "5",
+      "name": "FFmpeg Clip Short",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "{{$json[\"suggested_title\"]}}",
+        "description": "{{$json[\"suggested_description\"]}}",
+        "additionalFields": {
+          "tags": ["gaming", "shorts"],
+          "privacyStatus": "public"
+        }
+      },
+      "id": "6",
+      "name": "Upload to YouTube Shorts",
+      "type": "n8n-nodes-base.youtube",
+      "typeVersion": 1,
+      "position": [1200, 200],
+      "credentials": {
+        "youtubeOAuth2Api": "YouTube OAuth"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "your-gcs-bucket",
+        "filePath": "/tmp/short_{{$json[\"start_time\"]}}.mp4"
+      },
+      "id": "7",
+      "name": "Upload to Google Cloud Storage",
+      "type": "n8n-nodes-base.googleCloudStorage",
+      "typeVersion": 1,
+      "position": [1400, 200],
+      "credentials": {
+        "googleCloudStorageOAuth2Api": "GCS OAuth"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": "YOUR_SHEET_ID",
+        "range": "Sheet1!A:E",
+        "valueInputMode": "RAW",
+        "fields": {
+          "values": [
+            "={{$json[\"original_url\"]}}",
+            "={{$json[\"suggested_title\"]}}",
+            "={{$json[\"suggested_description\"]}}",
+            "={{$json[\"youtube_video_url\"]}}",
+            "={{$json[\"gcs_path\"]}}"
           ]
-        },
-        "options": {}
-      },
-      "id": "52857410-6ed6-49a6-9818-8f85f366113c",
-      "name": "6. Generate Titles",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 2,
-      "position": [
-        1760,
-        560
-      ]
-    },
-    {
-      "parameters": {
-        "authentication": "serviceAccount",
-        "service": "storage",
-        "operation": "upload",
-        "bucketName": "REPLACE_WITH_YOUR_GCS_BUCKET_NAME",
-        "binaryData": true,
-        "inputDataFieldName": "data",
-        "options": {
-          "destination": "video.mp4"
         }
       },
-      "id": "76d8b6da-f87c-40ad-9b87-4b7782b56461",
-      "name": "2. Upload to GCS",
-      "type": "n8n-nodes-base.googleCloud",
-      "typeVersion": 1.2,
-      "position": [
-        880,
-        560
-      ],
+      "id": "8",
+      "name": "Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 1,
+      "position": [1600, 200],
       "credentials": {
-        "googleApi": {
-          "id": "REPLACE_WITH_YOUR_GCP_CREDENTIAL_ID",
-          "name": "My Google Cloud Credential"
-        }
-      },
-      "notes": "**ACTION REQUIRED!**\nReplace the placeholder bucket name with your actual GCS bucket name."
-    },
-    {
-      "parameters": {
-        "authentication": "serviceAccount",
-        "service": "videoIntelligence",
-        "operation": "video.annotate",
-        "options": {
-          "body": "=\n{\n  \"inputUri\": \"gs://{{ $('2. Upload to GCS').item.json.bucket }}/{{ $('2. Upload to GCS').item.json.name }}\",\n  \"features\": [\n    \"SHOT_CHANGE_DETECTION\",\n    \"LABEL_DETECTION\",\n    \"EXPLICIT_CONTENT_DETECTION\"\n  ]\n}"
-        }
-      },
-      "id": "d0e1239c-722a-436f-b25c-89b3f3a09322",
-      "name": "3. Analyze with Video AI",
-      "type": "n8n-nodes-base.googleCloud",
-      "typeVersion": 1.2,
-      "position": [
-        1100,
-        560
-      ],
-      "credentials": {
-        "googleApi": {
-          "id": "REPLACE_WITH_YOUR_GCP_CREDENTIAL_ID",
-          "name": "My Google Cloud Credential"
-        }
+        "googleSheetsOAuth2Api": "Google Sheets OAuth"
       }
-    },
-    {
-      "parameters": {
-        "authentication": "oAuth2",
-        "channelId": "REPLACE_WITH_YOUR_CHANNEL_ID",
-        "options": {
-          "limit": 1
-        }
-      },
-      "id": "3f04495e-3c72-4d83-8472-0056e4c7606e",
-      "name": "YouTube Trigger",
-      "type": "n8n-nodes-base.youTubeTrigger",
-      "typeVersion": 1.1,
-      "position": [
-        440,
-        560
-      ],
-      "credentials": {
-        "youTubeOAuth2Api": {
-          "id": "REPLACE_WITH_YOUR_YOUTUBE_CREDENTIAL_ID",
-          "name": "My YouTube Credential"
-        }
-      },
-      "notes": "**ACTION REQUIRED!**\nReplace the placeholder Channel ID with your actual YouTube Channel ID."
     }
   ],
   "connections": {
-    "1. Download Video": {
-      "main": [
-        [
-          {
-            "node": "2. Upload to GCS",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "4. Filter Safe Clips": {
-      "main": [
-        [
-          {
-            "node": "5. Clip Scene (FFmpeg)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "5. Clip Scene (FFmpeg)": {
-      "main": [
-        [
-          {
-            "node": "6. Generate Titles",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "7. Upload to YouTube": {
-      "main": [
-        [
-          {
-            "node": "8. Cleanup Files",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "6. Generate Titles": {
-      "main": [
-        [
-          {
-            "node": "7. Upload to YouTube",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "2. Upload to GCS": {
-      "main": [
-        [
-          {
-            "node": "3. Analyze with Video AI",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "3. Analyze with Video AI": {
-      "main": [
-        [
-          {
-            "node": "4. Filter Safe Clips",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "YouTube Trigger": {
-      "main": [
-        [
-          {
-            "node": "1. Download Video",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
+    "Webhook (Form Input)": { "main": [[{ "node": "Download Video", "type": "main", "index": 0 }]] },
+    "Download Video": { "main": [[{ "node": "Gemini Highlight Detection", "type": "main", "index": 0 }]] },
+    "Gemini Highlight Detection": { "main": [[{ "node": "Split Highlights", "type": "main", "index": 0 }]] },
+    "Split Highlights": { "main": [[{ "node": "FFmpeg Clip Short", "type": "main", "index": 0 }]] },
+    "FFmpeg Clip Short": { "main": [[{ "node": "Upload to YouTube Shorts", "type": "main", "index": 0 }]] },
+    "Upload to YouTube Shorts": { "main": [[{ "node": "Upload to Google Cloud Storage", "type": "main", "index": 0 }]] },
+    "Upload to Google Cloud Storage": { "main": [[{ "node": "Log to Google Sheets", "type": "main", "index": 0 }]] }
   }
 }
