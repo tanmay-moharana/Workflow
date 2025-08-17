@@ -271,4 +271,20 @@
     "Use Captions for Gemini":{"main":[[{"node":"Gemini Highlights","type":"main","index":0}]]},
     "Download Video (yt-dlp)":{"main":[[{"node":"Extract Audio","type":"main","index":0}]]},
     "Extract Audio":{"main":[[{"node":"Upload Audio to GCS","type":"main","index":0}]]},
-    "Upload Audio to GCS":{"main":[[{"node":"Speech-to-Text","type":"main","index":
+    "Upload Audio to GCS":{"main":[[{"node":"Speech-to-Text","type":"main","index":0}]]},
+    "Speech-to-Text":{"main":[[{"node":"Prepare Transcript STT","type":"main","index":0}]]},
+    "Prepare Transcript STT":{"main":[[{"node":"Gemini Highlights","type":"main","index":0}]]},
+    "Gemini Highlights":{"main":[[{"node":"Parse Highlights → Items","type":"main","index":0}]]},
+    "Parse Highlights → Items":{"main":[[{"node":"Top 5 Highlights + Hashtags","type":"main","index":0}]]},
+    "Top 5 Highlights + Hashtags":{"main":[[{"node":"FFmpeg → Clip Short","type":"main","index":0}]]},
+    "FFmpeg → Clip Short":{"main":[[{"node":"FFmpeg → Thumbnail","type":"main","index":0}]]},
+    "FFmpeg → Thumbnail":{"main":[[{"node":"YouTube Upload (Short)","type":"main","index":0}]]},
+    "YouTube Upload (Short)":{"main":[[{"node":"YouTube → Set Thumbnail","type":"main","index":0},{"node":"GCS Upload Short","type":"main","index":0}]]},
+    "YouTube → Set Thumbnail":{"main":[[{"node":"GCS Upload Thumbnail","type":"main","index":0}]]},
+    "GCS Upload Thumbnail":{"main":[[{"node":"Compose Log Row","type":"main","index":0}]]},
+    "GCS Upload Short":{"main":[[{"node":"Compose Log Row","type":"main","index":0}]]},
+    "Compose Log Row":{"main":[[{"node":"Append to Google Sheet (Shorts)","type":"main","index":0},{"node":"Mark Processed","type":"main","index":0}]]}
+  },
+  "pinData": {},
+  "meta":{"templateCredsNote":"Replace YOUR_BUCKET, YOUR_SHEET_ID, YOUR_GEMINI_API_KEY and set OAuth credentials: YouTube OAuth, Google Sheets OAuth, Google Cloud OAuth/GCS OAuth."}
+}
