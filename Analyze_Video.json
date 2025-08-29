@@ -1,150 +1,144 @@
 {
+  "name": "YouTube Gaming Shorts (Gemini)",
   "nodes": [
     {
       "id": "1",
       "name": "Webhook Trigger",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [250, 300],
+      "position": [200, 300],
       "parameters": {
-        "path": "gaming-shorts-gemini",
-        "httpMethod": "POST"
+        "path": "yt-shorts",
+        "method": "POST"
       }
     },
     {
       "id": "2",
-      "name": "Download with yt-dlp",
+      "name": "Download YouTube (yt-dlp)",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [500, 300],
+      "position": [400, 300],
       "parameters": {
-        "command": "yt-dlp -f mp4 -o '/data/video.mp4' {{$json[\"body\"][\"url\"]}}"
+        "command": "yt-dlp -o '/data/input.mp4' {{$json[\"body\"][\"url\"]}}"
       }
     },
     {
       "id": "3",
-      "name": "Extract Audio",
+      "name": "Extract Audio (FFmpeg)",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [750, 300],
+      "position": [600, 300],
       "parameters": {
-        "command": "ffmpeg -y -i /data/video.mp4 -vn -acodec mp3 /data/audio.mp3"
+        "command": "ffmpeg -i /data/input.mp4 -vn -ar 44100 -ac 2 -b:a 192k /data/audio.mp3 -y"
       }
     },
     {
       "id": "4",
-      "name": "Transcribe Audio",
-      "type": "n8n-nodes-base.openAi",
+      "name": "Google Speech-to-Text",
+      "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
-      "position": [1000, 300],
+      "position": [800, 300],
       "parameters": {
-        "resource": "audioTranscription",
-        "operation": "create",
-        "model": "whisper-1",
-        "binaryProperty": "data"
+        "url": "https://speech.googleapis.com/v1/speech:recognize?key={{$env.GOOGLE_API_KEY}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {},
+        "body": {
+          "config": {
+            "encoding": "MP3",
+            "languageCode": "en-US",
+            "enableWordTimeOffsets": true
+          },
+          "audio": {
+            "content": "={{$binary.data.toString('base64')}}"
+          }
+        }
       }
     },
     {
       "id": "5",
-      "name": "Gemini Clip Selector (Gaming)",
+      "name": "Gemini: Find Best Clips",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
-      "position": [1250, 300],
+      "position": [1000, 300],
       "parameters": {
-        "requestMethod": "POST",
-        "url": "https://api.generativeai.googleapis.com/v1/models/gemini-2.5-pro:generateContent",
-        "headers": {
-          "Authorization": "Bearer {{$env.GEMINI_API_KEY}}",
-          "Content-Type": "application/json"
-        },
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={{$env.GOOGLE_API_KEY}}",
+        "method": "POST",
+        "jsonParameters": true,
         "body": {
-          "prompt": "You are analyzing a transcript of a gaming video with timestamps. Your job is to pick the most viral-worthy clips for YouTube Shorts (<60s). Focus on funny reactions, clutch wins, epic fails, or emotional highlights. Return up to 3 clips. Each clip must be <60 seconds, include 2-3 seconds before the action, and output JSON in this format: {\"clips\":[{\"start\":..,\"end\":..,\"reason\":..}]}. Transcript: {{$json[\"text\"]}}"
-        },
-        "jsonParameters": true
+          "contents": [
+            {
+              "parts": [
+                {
+                  "text": "Here is a transcript of a gaming video with timestamps. Suggest 2-3 short highlight clips (epic wins, funny fails, rage quits). Return JSON only: [{\"start\":\"00:12\",\"end\":\"00:25\",\"reason\":\"funny fail\"}, {\"start\":\"01:05\",\"end\":\"01:20\",\"reason\":\"epic win\"}]. Transcript: {{$json[\"results\"]}}"
+                }
+              ]
+            }
+          ]
+        }
       }
     },
     {
       "id": "6",
-      "name": "Split Clips",
-      "type": "n8n-nodes-base.splitInBatches",
+      "name": "FFmpeg: Cut Clips",
+      "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [1500, 300],
+      "position": [1200, 300],
       "parameters": {
-        "batchSize": 1
+        "command": "ffmpeg -i /data/input.mp4 -ss {{ $json[\"start\"] }} -to {{ $json[\"end\"] }} -vf \"scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2\" -c:a copy /data/clip_{{ $json[\"reason\"] }}.mp4 -y"
       }
     },
     {
       "id": "7",
-      "name": "Clip with FFmpeg",
-      "type": "n8n-nodes-base.executeCommand",
+      "name": "Gemini: Title & Description",
+      "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
-      "position": [1750, 300],
+      "position": [1400, 300],
       "parameters": {
-        "command": "ffmpeg -y -i /data/video.mp4 -ss {{$json[\"start\"]}} -to {{$json[\"end\"]}} -vf \"scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2\" -c:a copy /data/clip_{{$json[\"start\"]}}_{{$json[\"end\"]}}.mp4"
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={{$env.GOOGLE_API_KEY}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "body": {
+          "contents": [
+            {
+              "parts": [
+                {
+                  "text": "Generate a catchy YouTube Shorts title and description for this gaming highlight: {{$json[\"reason\"]}}"
+                }
+              ]
+            }
+          ]
+        }
       }
     },
     {
       "id": "8",
-      "name": "Gemini Metadata Generator",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 1,
-      "position": [2000, 300],
-      "parameters": {
-        "requestMethod": "POST",
-        "url": "https://api.generativeai.googleapis.com/v1/models/gemini-2.5-pro:generateContent",
-        "headers": {
-          "Authorization": "Bearer {{$env.GEMINI_API_KEY}}",
-          "Content-Type": "application/json"
-        },
-        "body": {
-          "prompt": "Generate a catchy YouTube Shorts title, description, and 5 trending gaming hashtags for this clip. Output JSON: {\"title\":..., \"description\":..., \"tags\":...}. Clip reason: {{$json[\"reason\"]}}"
-        },
-        "jsonParameters": true
-      }
-    },
-    {
-      "id": "9",
-      "name": "Upload to YouTube",
+      "name": "Upload to YouTube Shorts",
       "type": "n8n-nodes-base.googleYouTube",
       "typeVersion": 1,
-      "position": [2250, 300],
-      "credentials": {
-        "googleYouTubeOAuth2Api": "YOUR_YOUTUBE_OAUTH"
-      },
+      "position": [1600, 300],
       "parameters": {
-        "operation": "uploadVideo",
-        "binaryProperty": "data",
-        "title": "={{$json[\"choices\"][0][\"candidate\"].title}}",
-        "description": "={{$json[\"choices\"][0][\"candidate\"].description}}",
-        "tags": "={{$json[\"choices\"][0][\"candidate\"].tags}}",
-        "privacyStatus": "public"
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{$json[\"title\"]}}",
+        "description": "={{$json[\"description\"]}}",
+        "tags": ["gaming", "shorts"],
+        "categoryId": "20",
+        "privacyStatus": "public",
+        "binaryProperty": "data"
+      },
+      "credentials": {
+        "googleApi": "YouTube OAuth2"
       }
     }
   ],
   "connections": {
-    "Webhook Trigger": {
-      "main": [[{"node":"Download with yt-dlp","type":"main","index":0}]]
-    },
-    "Download with yt-dlp": {
-      "main": [[{"node":"Extract Audio","type":"main","index":0}]]
-    },
-    "Extract Audio": {
-      "main": [[{"node":"Transcribe Audio","type":"main","index":0}]]
-    },
-    "Transcribe Audio": {
-      "main": [[{"node":"Gemini Clip Selector (Gaming)","type":"main","index":0}]]
-    },
-    "Gemini Clip Selector (Gaming)": {
-      "main": [[{"node":"Split Clips","type":"main","index":0}]]
-    },
-    "Split Clips": {
-      "main": [[{"node":"Clip with FFmpeg","type":"main","index":0}]]
-    },
-    "Clip with FFmpeg": {
-      "main": [[{"node":"Gemini Metadata Generator","type":"main","index":0}]]
-    },
-    "Gemini Metadata Generator": {
-      "main": [[{"node":"Upload to YouTube","type":"main","index":0}]]
-    }
+    "1": { "main": [[{ "node": "Download YouTube (yt-dlp)", "type": "main", "index": 0 }]] },
+    "2": { "main": [[{ "node": "Extract Audio (FFmpeg)", "type": "main", "index": 0 }]] },
+    "3": { "main": [[{ "node": "Google Speech-to-Text", "type": "main", "index": 0 }]] },
+    "4": { "main": [[{ "node": "Gemini: Find Best Clips", "type": "main", "index": 0 }]] },
+    "5": { "main": [[{ "node": "FFmpeg: Cut Clips", "type": "main", "index": 0 }]] },
+    "6": { "main": [[{ "node": "Gemini: Title & Description", "type": "main", "index": 0 }]] },
+    "7": { "main": [[{ "node": "Upload to YouTube Shorts", "type": "main", "index": 0 }]] }
   }
 }
