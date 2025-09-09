@@ -22,7 +22,7 @@
         "queryParametersUi": {
           "parameter": [
             { "name": "part", "value": "snippet" },
-            { "name": "channelId", "value": "YOUR_CHANNEL_ID" },
+            { "name": "channelId", "value": "UCqKZx0XQEFg6OD79XEfiERg" },
             { "name": "order", "value": "date" },
             { "name": "maxResults", "value": "1" }
           ]
@@ -53,7 +53,7 @@
         "jsonParameters": true,
         "body": {
           "features": ["SHOT_CHANGE_DETECTION", "LABEL_DETECTION"],
-          "inputUri": "gs://YOUR_BUCKET/video.mp4"
+          "inputUri": "gs://automatedyoutubevideos/video.mp4"
         }
       },
       "typeVersion": 2,
@@ -111,7 +111,7 @@
       "type": "n8n-nodes-base.googleSheets",
       "parameters": {
         "operation": "append",
-        "sheetId": "YOUR_SHEET_ID",
+        "sheetId": "1WImoOTdPiYiflny3WhgagxKS14RFT59WVtx1o0TPXAk",
         "range": "Highlights!A:D",
         "fields": {
           "values": [
