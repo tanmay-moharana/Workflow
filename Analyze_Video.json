@@ -1,144 +1,139 @@
 {
-  "name": "YouTube Gaming Shorts (Gemini)",
+  "name": "YouTube Gaming Highlights to Shorts with Scoring & Logging",
   "nodes": [
     {
       "id": "1",
-      "name": "Webhook Trigger",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 1,
-      "position": [200, 300],
+      "name": "Trigger Every 6h",
+      "type": "n8n-nodes-base.cron",
       "parameters": {
-        "path": "yt-shorts",
-        "method": "POST"
-      }
+        "triggerTimes": [{ "mode": "everyX", "unit": "hours", "value": 6 }]
+      },
+      "typeVersion": 1,
+      "position": [200, 200]
     },
     {
       "id": "2",
-      "name": "Download YouTube (yt-dlp)",
-      "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
-      "position": [400, 300],
+      "name": "Get Channel Uploads",
+      "type": "n8n-nodes-base.httpRequest",
       "parameters": {
-        "command": "yt-dlp -o '/data/input.mp4' {{$json[\"body\"][\"url\"]}}"
-      }
+        "url": "https://www.googleapis.com/youtube/v3/search",
+        "authentication": "oAuth2",
+        "options": {},
+        "queryParametersUi": {
+          "parameter": [
+            { "name": "part", "value": "snippet" },
+            { "name": "channelId", "value": "YOUR_CHANNEL_ID" },
+            { "name": "order", "value": "date" },
+            { "name": "maxResults", "value": "1" }
+          ]
+        }
+      },
+      "typeVersion": 2,
+      "position": [400, 200],
+      "credentials": { "oAuth2Api": "YouTube OAuth2" }
     },
     {
       "id": "3",
-      "name": "Extract Audio (FFmpeg)",
+      "name": "Download Video",
       "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
-      "position": [600, 300],
       "parameters": {
-        "command": "ffmpeg -i /data/input.mp4 -vn -ar 44100 -ac 2 -b:a 192k /data/audio.mp3 -y"
-      }
+        "command": "yt-dlp -f mp4 -o \"/tmp/video.mp4\" \"https://www.youtube.com/watch?v={{$json[\"id\"][\"videoId\"]}}\""
+      },
+      "typeVersion": 1,
+      "position": [600, 200]
     },
     {
       "id": "4",
-      "name": "Google Speech-to-Text",
+      "name": "Analyze with Google Video Intelligence",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 1,
-      "position": [800, 300],
       "parameters": {
-        "url": "https://speech.googleapis.com/v1/speech:recognize?key={{$env.GOOGLE_API_KEY}}",
+        "url": "https://videointelligence.googleapis.com/v1/videos:annotate",
         "method": "POST",
+        "authentication": "headerAuth",
         "jsonParameters": true,
-        "options": {},
         "body": {
-          "config": {
-            "encoding": "MP3",
-            "languageCode": "en-US",
-            "enableWordTimeOffsets": true
-          },
-          "audio": {
-            "content": "={{$binary.data.toString('base64')}}"
-          }
+          "features": ["SHOT_CHANGE_DETECTION", "LABEL_DETECTION"],
+          "inputUri": "gs://YOUR_BUCKET/video.mp4"
         }
-      }
+      },
+      "typeVersion": 2,
+      "position": [800, 200],
+      "credentials": { "httpHeaderAuth": "Google API Key" }
     },
     {
       "id": "5",
-      "name": "Gemini: Find Best Clips",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 1,
-      "position": [1000, 300],
+      "name": "Rank Highlights (Excitement Score)",
+      "type": "n8n-nodes-base.function",
       "parameters": {
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={{$env.GOOGLE_API_KEY}}",
-        "method": "POST",
-        "jsonParameters": true,
-        "body": {
-          "contents": [
-            {
-              "parts": [
-                {
-                  "text": "Here is a transcript of a gaming video with timestamps. Suggest 2-3 short highlight clips (epic wins, funny fails, rage quits). Return JSON only: [{\"start\":\"00:12\",\"end\":\"00:25\",\"reason\":\"funny fail\"}, {\"start\":\"01:05\",\"end\":\"01:20\",\"reason\":\"epic win\"}]. Transcript: {{$json[\"results\"]}}"
-                }
-              ]
-            }
-          ]
-        }
-      }
+        "functionCode": "const scenes = items[0].json.annotationResults[0].shotAnnotations;\nconst labels = items[0].json.annotationResults[0].segmentLabelAnnotations;\n\nfunction scoreScene(start, end) {\n  let score = 0;\n  const duration = end - start;\n\n  // duration sweet spot (15–45s)\n  if (duration >= 15 && duration <= 45) score += 2;\n\n  // add label-based excitement\n  for (const label of labels) {\n    for (const seg of label.segments) {\n      const segStart = seg.segment.startTimeOffset?.seconds || 0;\n      const segEnd = seg.segment.endTimeOffset?.seconds || 0;\n      if (segStart <= start && segEnd >= end) {\n        if ([\"Explosion\", \"Fight\", \"Cheering\", \"Gunshot\", \"Goal\"].includes(label.entity.description)) {\n          score += Math.round((label.confidence || 0) * 10);\n        }\n      }\n    }\n  }\n  return score;\n}\n\nconst ranked = scenes.map(s => {\n  const start = s.startTimeOffset?.seconds || 0;\n  const end = s.endTimeOffset?.seconds || 0;\n  return { start, end, score: scoreScene(start, end) };\n});\n\nranked.sort((a, b) => b.score - a.score);\n\n// keep top 3 exciting highlights\nreturn ranked.slice(0, 3).map(s => ({ json: s }));"
+      },
+      "typeVersion": 1,
+      "position": [1000, 200]
     },
     {
       "id": "6",
-      "name": "FFmpeg: Cut Clips",
+      "name": "Clip with FFmpeg",
       "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
-      "position": [1200, 300],
       "parameters": {
-        "command": "ffmpeg -i /data/input.mp4 -ss {{ $json[\"start\"] }} -to {{ $json[\"end\"] }} -vf \"scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2\" -c:a copy /data/clip_{{ $json[\"reason\"] }}.mp4 -y"
-      }
+        "command": "ffmpeg -ss {{$json[\"start\"]}} -i /tmp/video.mp4 -to {{$json[\"end\"]}} -vf \"scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2\" -c:a copy /tmp/shorts_{{$json[\"start\"]}}.mp4"
+      },
+      "typeVersion": 1,
+      "position": [1200, 200]
     },
     {
       "id": "7",
-      "name": "Gemini: Title & Description",
+      "name": "Upload as YouTube Short",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 1,
-      "position": [1400, 300],
       "parameters": {
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={{$env.GOOGLE_API_KEY}}",
+        "url": "https://www.googleapis.com/upload/youtube/v3/videos?part=snippet,status",
         "method": "POST",
+        "authentication": "oAuth2",
+        "options": {},
         "jsonParameters": true,
         "body": {
-          "contents": [
-            {
-              "parts": [
-                {
-                  "text": "Generate a catchy YouTube Shorts title and description for this gaming highlight: {{$json[\"reason\"]}}"
-                }
-              ]
-            }
-          ]
-        }
-      }
+          "snippet": {
+            "title": "Gaming Highlight #shorts",
+            "description": "Auto-generated highlight from gaming session",
+            "tags": ["gaming", "shorts", "highlights"]
+          },
+          "status": { "privacyStatus": "public" }
+        },
+        "sendBinaryData": true,
+        "binaryPropertyName": "data"
+      },
+      "typeVersion": 2,
+      "position": [1400, 200],
+      "credentials": { "oAuth2Api": "YouTube OAuth2" }
     },
     {
       "id": "8",
-      "name": "Upload to YouTube Shorts",
-      "type": "n8n-nodes-base.googleYouTube",
-      "typeVersion": 1,
-      "position": [1600, 300],
+      "name": "Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
       "parameters": {
-        "resource": "video",
-        "operation": "upload",
-        "title": "={{$json[\"title\"]}}",
-        "description": "={{$json[\"description\"]}}",
-        "tags": ["gaming", "shorts"],
-        "categoryId": "20",
-        "privacyStatus": "public",
-        "binaryProperty": "data"
+        "operation": "append",
+        "sheetId": "YOUR_SHEET_ID",
+        "range": "Highlights!A:D",
+        "fields": {
+          "values": [
+            "https://www.youtube.com/watch?v={{$json[\"id\"][\"videoId\"]}}",
+            "{{$json[\"start\"]}}–{{$json[\"end\"]}}",
+            "{{$json[\"uploadResult\"][\"id\"]}}",
+            "{{$json[\"score\"]}}"
+          ]
+        }
       },
-      "credentials": {
-        "googleApi": "YouTube OAuth2"
-      }
+      "typeVersion": 2,
+      "position": [1600, 200],
+      "credentials": { "googleApi": "Google Sheets OAuth2" }
     }
   ],
   "connections": {
-    "1": { "main": [[{ "node": "Download YouTube (yt-dlp)", "type": "main", "index": 0 }]] },
-    "2": { "main": [[{ "node": "Extract Audio (FFmpeg)", "type": "main", "index": 0 }]] },
-    "3": { "main": [[{ "node": "Google Speech-to-Text", "type": "main", "index": 0 }]] },
-    "4": { "main": [[{ "node": "Gemini: Find Best Clips", "type": "main", "index": 0 }]] },
-    "5": { "main": [[{ "node": "FFmpeg: Cut Clips", "type": "main", "index": 0 }]] },
-    "6": { "main": [[{ "node": "Gemini: Title & Description", "type": "main", "index": 0 }]] },
-    "7": { "main": [[{ "node": "Upload to YouTube Shorts", "type": "main", "index": 0 }]] }
+    "1": { "main": [[{ "node": "Get Channel Uploads", "type": "main", "index": 0 }]] },
+    "2": { "main": [[{ "node": "Download Video", "type": "main", "index": 0 }]] },
+    "3": { "main": [[{ "node": "Analyze with Google Video Intelligence", "type": "main", "index": 0 }]] },
+    "4": { "main": [[{ "node": "Rank Highlights (Excitement Score)", "type": "main", "index": 0 }]] },
+    "5": { "main": [[{ "node": "Clip with FFmpeg", "type": "main", "index": 0 }]] },
+    "6": { "main": [[{ "node": "Upload as YouTube Short", "type": "main", "index": 0 }]] },
+    "7": { "main": [[{ "node": "Log to Google Sheets", "type": "main", "index": 0 }]] }
   }
 }
