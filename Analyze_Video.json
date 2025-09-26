@@ -47,7 +47,7 @@
       "name": "Download Video",
       "type": "n8n-nodes-base.executeCommand",
       "parameters": {
-        "command": "={{`yt-dlp -f bestvideo+bestaudio --merge-output-format mp4 -o /tmp/video.mp4 ${$json.videoUrl}`}}"
+        "command": "={{`yt-dlp -f \"best[ext=mp4]\" -o /tmp/video.mp4 ${$json.videoUrl}`}}"
       },
       "typeVersion": 1,
       "position": [800, 200]
