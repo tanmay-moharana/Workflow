@@ -43,6 +43,20 @@
       "position": [600, 200]
     },
     {
+      "id": "2b",
+      "name": "Update & Download Video",
+      "type": "n8n-nodes-base.executeCommand",
+      "parameters": {
+        "command": "bash",
+        "arguments": [
+          "-c",
+          "yt-dlp -U && mkdir -p /data && yt-dlp --cookies /data/youtube-cookies.txt -f bestvideo+bestaudio/best --merge-output-format mp4 --compat-options no-youtube-legacy-dash -o /data/video.%(ext)s {{$json.videoUrl}}"
+        ]
+      },
+      "typeVersion": 1,
+      "position": [800, 150]
+    },
+    {
       "id": "3",
       "name": "Download Video",
       "type": "n8n-nodes-base.executeCommand",
@@ -50,7 +64,7 @@
         "command": "={{`yt-dlp -f \"best[ext=mp4]\" -o /tmp/video.mp4 ${$json.videoUrl}`}}"
       },
       "typeVersion": 1,
-      "position": [800, 200]
+      "position": [1000, 200]
     },
     {
       "id": "4",
@@ -67,7 +81,7 @@
         }
       },
       "typeVersion": 2,
-      "position": [1000, 200],
+      "position": [1200, 200],
       "credentials": { "httpHeaderAuth": "Google API Key" }
     },
     {
@@ -78,7 +92,7 @@
         "functionCode": "const scenes = items[0].json.annotationResults[0].shotAnnotations;\nconst labels = items[0].json.annotationResults[0].segmentLabelAnnotations;\n\nfunction scoreScene(start, end) {\n  let score = 0;\n  const duration = end - start;\n\n  if (duration >= 15 && duration <= 45) score += 2;\n\n  for (const label of labels) {\n    for (const seg of label.segments) {\n      const segStart = seg.segment.startTimeOffset?.seconds || 0;\n      const segEnd = seg.segment.endTimeOffset?.seconds || 0;\n      if (segStart <= start && segEnd >= end) {\n        if ([\"Explosion\", \"Fight\", \"Cheering\", \"Gunshot\", \"Goal\"].includes(label.entity.description)) {\n          score += Math.round((label.confidence || 0) * 10);\n        }\n      }\n    }\n  }\n  return score;\n}\n\nconst ranked = scenes.map(s => {\n  const start = s.startTimeOffset?.seconds || 0;\n  const end = s.endTimeOffset?.seconds || 0;\n  return { start, end, score: scoreScene(start, end) };\n});\n\nranked.sort((a, b) => b.score - a.score);\n\nreturn ranked.slice(0, 3).map(s => ({ json: s }));"
       },
       "typeVersion": 1,
-      "position": [1200, 200]
+      "position": [1400, 200]
     },
     {
       "id": "6",
@@ -88,7 +102,7 @@
         "command": "ffmpeg -ss {{$json[\"start\"]}} -i /tmp/video.mp4 -to {{$json[\"end\"]}} -vf \"scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2\" -c:a copy /tmp/shorts_{{$json[\"start\"]}}.mp4"
       },
       "typeVersion": 1,
-      "position": [1400, 200]
+      "position": [1600, 200]
     },
     {
       "id": "7",
@@ -112,7 +126,7 @@
         "binaryPropertyName": "data"
       },
       "typeVersion": 2,
-      "position": [1600, 200],
+      "position": [1800, 200],
       "credentials": { "oAuth2Api": "YouTube OAuth2" }
     },
     {
@@ -133,14 +147,15 @@
         }
       },
       "typeVersion": 2,
-      "position": [1800, 200],
+      "position": [2000, 200],
       "credentials": { "googleApi": "Google Sheets OAuth2" }
     }
   ],
   "connections": {
     "1": { "main": [[{ "node": "Get Channel Uploads", "type": "main", "index": 0 }]] },
     "2": { "main": [[{ "node": "Build Video URL", "type": "main", "index": 0 }]] },
-    "2a": { "main": [[{ "node": "Download Video", "type": "main", "index": 0 }]] },
+    "2a": { "main": [[{ "node": "Update & Download Video", "type": "main", "index": 0 }]] },
+    "2b": { "main": [[{ "node": "Download Video", "type": "main", "index": 0 }]] },
     "3": { "main": [[{ "node": "Analyze with Google Video Intelligence", "type": "main", "index": 0 }]] },
     "4": { "main": [[{ "node": "Rank Highlights (Excitement Score)", "type": "main", "index": 0 }]] },
     "5": { "main": [[{ "node": "Clip with FFmpeg", "type": "main", "index": 0 }]] },
