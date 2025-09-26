@@ -1,5 +1,5 @@
 {
-  "name": "YouTube Gaming Highlights to Shorts with Scoring & Logging",
+  "name": "YouTube Gaming Highlights to Shorts with Scoring, Download Progress & Logging",
   "nodes": [
     {
       "id": "1",
@@ -43,25 +43,25 @@
       "position": [600, 200]
     },
     {
-      "id": "2b",
+      "id": "3",
       "name": "Update & Download Video",
       "type": "n8n-nodes-base.executeCommand",
       "parameters": {
         "command": "bash",
         "arguments": [
           "-c",
-          "yt-dlp -U && mkdir -p /data && yt-dlp --cookies /data/youtube-cookies.txt -f bestvideo+bestaudio/best --merge-output-format mp4 --compat-options no-youtube-legacy-dash -o /data/video.%(ext)s {{$json.videoUrl}}"
+          "yt-dlp -U --newline --verbose && mkdir -p /data && yt-dlp --cookies /data/youtube-cookies.txt -f bestvideo+bestaudio/best --merge-output-format mp4 --compat-options no-youtube-legacy-dash -o /data/video.%(ext)s {{$json.videoUrl}} --newline"
         ]
       },
       "typeVersion": 1,
-      "position": [800, 150]
+      "position": [800, 200]
     },
     {
-      "id": "3",
-      "name": "Download Video",
-      "type": "n8n-nodes-base.executeCommand",
+      "id": "3a",
+      "name": "Check Download Success",
+      "type": "n8n-nodes-base.function",
       "parameters": {
-        "command": "={{`yt-dlp -f \"best[ext=mp4]\" -o /tmp/video.mp4 ${$json.videoUrl}`}}"
+        "functionCode": "const output = $node['Update & Download Video'].json['stdout'] || '';\nconst error = $node['Update & Download Video'].json['stderr'] || '';\n\nconst success = output.includes('[download] 100%') || output.includes('has already been downloaded');\nconst failed = error.length > 0;\n\nreturn [{ json: { success, failed, output: output.split('\\n'), error: error.split('\\n'), videoUrl: $json.videoUrl } }];"
       },
       "typeVersion": 1,
       "position": [1000, 200]
@@ -155,8 +155,8 @@
     "1": { "main": [[{ "node": "Get Channel Uploads", "type": "main", "index": 0 }]] },
     "2": { "main": [[{ "node": "Build Video URL", "type": "main", "index": 0 }]] },
     "2a": { "main": [[{ "node": "Update & Download Video", "type": "main", "index": 0 }]] },
-    "2b": { "main": [[{ "node": "Download Video", "type": "main", "index": 0 }]] },
-    "3": { "main": [[{ "node": "Analyze with Google Video Intelligence", "type": "main", "index": 0 }]] },
+    "3": { "main": [[{ "node": "Check Download Success", "type": "main", "index": 0 }]] },
+    "3a": { "main": [[{ "node": "Analyze with Google Video Intelligence", "type": "main", "index": 0 }]] },
     "4": { "main": [[{ "node": "Rank Highlights (Excitement Score)", "type": "main", "index": 0 }]] },
     "5": { "main": [[{ "node": "Clip with FFmpeg", "type": "main", "index": 0 }]] },
     "6": { "main": [[{ "node": "Upload as YouTube Short", "type": "main", "index": 0 }]] },
