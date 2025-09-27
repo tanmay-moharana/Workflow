@@ -1,5 +1,5 @@
 {
-  "name": "YouTube Gaming Highlights to Shorts with Scoring, Logging & Download Progress",
+  "name": "YouTube Gaming Highlights to Shorts with Scoring & Logging",
   "nodes": [
     {
       "id": "1",
@@ -43,69 +43,81 @@
       "position": [600, 200]
     },
     {
-      "id": "3",
-      "name": "Update & Download Video",
-      "type": "n8n-nodes-base.executeCommand",
+      "id": "2b",
+      "name": "Download Video (Binary)",
+      "type": "n8n-nodes-base.httpRequest",
       "parameters": {
-        "command": "bash",
-        "arguments": [
-          "-c",
-          "yt-dlp -U --newline --verbose && mkdir -p /data && yt-dlp --cookies /data/youtube-cookies.txt -f bestvideo+bestaudio/best --merge-output-format mp4 --compat-options no-youtube-legacy-dash -o /data/video.%(ext)s {{$json.videoUrl}} --newline"
-        ]
+        "url": "={{$json[\"videoUrl\"]}}",
+        "responseFormat": "file",
+        "options": { "binaryPropertyName": "data" }
       },
-      "typeVersion": 1,
+      "typeVersion": 2,
       "position": [800, 200]
     },
     {
-      "id": "3a",
-      "name": "Parse Download Progress",
-      "type": "n8n-nodes-base.function",
+      "id": "2c",
+      "name": "Upload to Google Drive",
+      "type": "n8n-nodes-base.googleDrive",
       "parameters": {
-        "functionCode": "// Get stdout from previous node\nconst output = $node[\"Update & Download Video\"].json[\"stdout\"] || '';\nconst lines = output.split('\\n');\n\n// Filter lines with progress\nconst progressLines = lines.filter(line => line.includes('[download]'));\nconst lastProgress = progressLines.length ? progressLines[progressLines.length - 1] : 'No progress yet';\n\nreturn [{ json: { lastProgress, allProgress: progressLines } }];"
+        "operation": "upload",
+        "folderId": "root",
+        "binaryData": true,
+        "binaryPropertyName": "data",
+        "fileName": "video.mp4"
       },
-      "typeVersion": 1,
-      "position": [1000, 200]
+      "typeVersion": 2,
+      "position": [1000, 200],
+      "credentials": { "googleDrive": "Google Drive OAuth2" }
     },
     {
-      "id": "4",
-      "name": "Analyze with Google Video Intelligence",
-      "type": "n8n-nodes-base.httpRequest",
+      "id": "2d",
+      "name": "Transfer to GCS",
+      "type": "n8n-nodes-base.googleCloudStorage",
       "parameters": {
-        "url": "https://videointelligence.googleapis.com/v1/videos:annotate",
-        "method": "POST",
-        "authentication": "headerAuth",
-        "jsonParameters": true,
-        "body": {
-          "features": ["SHOT_CHANGE_DETECTION", "LABEL_DETECTION"],
-          "inputUri": "gs://automatedyoutubevideos/video.mp4"
-        }
+        "operation": "upload",
+        "bucket": "YOUR_GCS_BUCKET_NAME",
+        "binaryPropertyName": "data",
+        "fileName": "video.mp4"
       },
       "typeVersion": 2,
       "position": [1200, 200],
-      "credentials": { "httpHeaderAuth": "Google API Key" }
+      "credentials": { "googleCloudStorage": "GCS OAuth2" }
     },
     {
-      "id": "5",
-      "name": "Rank Highlights (Excitement Score)",
-      "type": "n8n-nodes-base.function",
+      "id": "3",
+      "name": "Analyze with Google Gemini Video",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
       "parameters": {
-        "functionCode": "const scenes = items[0].json.annotationResults[0].shotAnnotations;\nconst labels = items[0].json.annotationResults[0].segmentLabelAnnotations;\n\nfunction scoreScene(start, end) {\n  let score = 0;\n  const duration = end - start;\n  if (duration >= 15 && duration <= 45) score += 2;\n  for (const label of labels) {\n    for (const seg of label.segments) {\n      const segStart = seg.segment.startTimeOffset?.seconds || 0;\n      const segEnd = seg.segment.endTimeOffset?.seconds || 0;\n      if (segStart <= start && segEnd >= end) {\n        if ([\"Explosion\", \"Fight\", \"Cheering\", \"Gunshot\", \"Goal\"].includes(label.entity.description)) {\n          score += Math.round((label.confidence || 0) * 10);\n        }\n      }\n    }\n  }\n  return score;\n}\n\nconst ranked = scenes.map(s => {\n  const start = s.startTimeOffset?.seconds || 0;\n  const end = s.endTimeOffset?.seconds || 0;\n  return { start, end, score: scoreScene(start, end) };\n});\n\nranked.sort((a, b) => b.score - a.score);\nreturn ranked.slice(0, 3).map(s => ({ json: s }));"
+        "resource": "video",
+        "operation": "analyze",
+        "input": "gs://YOUR_GCS_BUCKET_NAME/video.mp4",
+        "model": "gemini-1.5-video"
       },
       "typeVersion": 1,
       "position": [1400, 200]
     },
     {
-      "id": "6",
-      "name": "Clip with FFmpeg",
-      "type": "n8n-nodes-base.executeCommand",
+      "id": "4",
+      "name": "Rank Highlights (Excitement Score)",
+      "type": "n8n-nodes-base.function",
       "parameters": {
-        "command": "ffmpeg -ss {{$json[\"start\"]}} -i /data/video.mp4 -to {{$json[\"end\"]}} -vf \"scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2\" -c:a copy /data/shorts_{{$json[\"start\"]}}.mp4"
+        "functionCode": "const scenes = items[0].json.annotationResults[0].shotAnnotations;\nconst labels = items[0].json.annotationResults[0].segmentLabelAnnotations;\n\nfunction scoreScene(start, end) {\n  let score = 0;\n  const duration = end - start;\n  if (duration >= 15 && duration <= 45) score += 2;\n  for (const label of labels) {\n    for (const seg of label.segments) {\n      const segStart = seg.segment.startTimeOffset?.seconds || 0;\n      const segEnd = seg.segment.endTimeOffset?.seconds || 0;\n      if (segStart <= start && segEnd >= end) {\n        if ([\"Explosion\", \"Fight\", \"Cheering\", \"Gunshot\", \"Goal\"].includes(label.entity.description)) {\n          score += Math.round((label.confidence || 0) * 10);\n        }\n      }\n    }\n  }\n  return score;\n}\nconst ranked = scenes.map(s => {\n  const start = s.startTimeOffset?.seconds || 0;\n  const end = s.endTimeOffset?.seconds || 0;\n  return { start, end, score: scoreScene(start, end) };\n});\nranked.sort((a, b) => b.score - a.score);\nreturn ranked.slice(0, 3).map(s => ({ json: s }));"
       },
       "typeVersion": 1,
       "position": [1600, 200]
     },
     {
-      "id": "7",
+      "id": "5",
+      "name": "Clip with FFmpeg",
+      "type": "n8n-nodes-base.executeCommand",
+      "parameters": {
+        "command": "ffmpeg -ss {{$json[\"start\"]}} -i /tmp/video.mp4 -to {{$json[\"end\"]}} -vf \"scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2\" -c:a copy /tmp/shorts_{{$json[\"start\"]}}.mp4"
+      },
+      "typeVersion": 1,
+      "position": [1800, 200]
+    },
+    {
+      "id": "6",
       "name": "Upload as YouTube Short",
       "type": "n8n-nodes-base.httpRequest",
       "parameters": {
@@ -126,11 +138,11 @@
         "binaryPropertyName": "data"
       },
       "typeVersion": 2,
-      "position": [1800, 200],
+      "position": [2000, 200],
       "credentials": { "oAuth2Api": "YouTube OAuth2" }
     },
     {
-      "id": "8",
+      "id": "7",
       "name": "Log to Google Sheets",
       "type": "n8n-nodes-base.googleSheets",
       "parameters": {
@@ -147,19 +159,20 @@
         }
       },
       "typeVersion": 2,
-      "position": [2000, 200],
+      "position": [2200, 200],
       "credentials": { "googleApi": "Google Sheets OAuth2" }
     }
   ],
   "connections": {
     "1": { "main": [[{ "node": "Get Channel Uploads", "type": "main", "index": 0 }]] },
     "2": { "main": [[{ "node": "Build Video URL", "type": "main", "index": 0 }]] },
-    "2a": { "main": [[{ "node": "Update & Download Video", "type": "main", "index": 0 }]] },
-    "3": { "main": [[{ "node": "Parse Download Progress", "type": "main", "index": 0 }]] },
-    "3a": { "main": [[{ "node": "Analyze with Google Video Intelligence", "type": "main", "index": 0 }]] },
-    "4": { "main": [[{ "node": "Rank Highlights (Excitement Score)", "type": "main", "index": 0 }]] },
-    "5": { "main": [[{ "node": "Clip with FFmpeg", "type": "main", "index": 0 }]] },
-    "6": { "main": [[{ "node": "Upload as YouTube Short", "type": "main", "index": 0 }]] },
-    "7": { "main": [[{ "node": "Log to Google Sheets", "type": "main", "index": 0 }]] }
+    "2a": { "main": [[{ "node": "Download Video (Binary)", "type": "main", "index": 0 }]] },
+    "2b": { "main": [[{ "node": "Upload to Google Drive", "type": "main", "index": 0 }]] },
+    "2c": { "main": [[{ "node": "Transfer to GCS", "type": "main", "index": 0 }]] },
+    "2d": { "main": [[{ "node": "Analyze with Google Gemini Video", "type": "main", "index": 0 }]] },
+    "3": { "main": [[{ "node": "Rank Highlights (Excitement Score)", "type": "main", "index": 0 }]] },
+    "4": { "main": [[{ "node": "Clip with FFmpeg", "type": "main", "index": 0 }]] },
+    "5": { "main": [[{ "node": "Upload as YouTube Short", "type": "main", "index": 0 }]] },
+    "6": { "main": [[{ "node": "Log to Google Sheets", "type": "main", "index": 0 }]] }
   }
 }
