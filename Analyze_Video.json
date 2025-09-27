@@ -1,13 +1,11 @@
 {
-  "name": "YouTube Gaming Highlights to Shorts with Scoring & Logging",
+  "name": "YouTube Gaming Highlights to Shorts with Full Automation & Telegram Progress",
   "nodes": [
     {
       "id": "1",
       "name": "Trigger Every 6h",
       "type": "n8n-nodes-base.cron",
-      "parameters": {
-        "triggerTimes": [{ "mode": "everyX", "unit": "hours", "value": 6 }]
-      },
+      "parameters": { "triggerTimes": [{ "mode": "everyX", "unit": "hours", "value": 6 }] },
       "typeVersion": 1,
       "position": [200, 200]
     },
@@ -44,13 +42,13 @@
     },
     {
       "id": "2b",
-      "name": "Update & Download Video",
+      "name": "Download Video & Write Progress",
       "type": "n8n-nodes-base.executeCommand",
       "parameters": {
         "command": "bash",
         "arguments": [
           "-c",
-          "yt-dlp -U && mkdir -p /data && yt-dlp --cookies /data/youtube-cookies.txt -f bestvideo+bestaudio/best --merge-output-format mp4 --compat-options no-youtube-legacy-dash -o /data/video.%(ext)s {{$json[\"videoUrl\"]}} --progress-template '%(progress)s%%'"
+          "mkdir -p /data && yt-dlp --cookies /data/youtube-cookies.txt -f bestvideo+bestaudio/best --merge-output-format mp4 --compat-options no-youtube-legacy-dash -o /data/video.%(ext)s {{$json[\"videoUrl\"]}} --progress-template '%(progress)s%%' | while read line; do echo $line > /tmp/yt_progress.txt; done"
         ]
       },
       "typeVersion": 1,
@@ -58,26 +56,45 @@
     },
     {
       "id": "2c",
-      "name": "Parse Download Progress",
+      "name": "Read Download Progress",
       "type": "n8n-nodes-base.function",
       "parameters": {
-        "functionCode": "const log = $json.progress || '';\nconst match = log.match(/(\\d+\\.\\d+)%/);\nconst percentage = match ? match[1] : '0';\nreturn [{ json: { progress: percentage } }];"
+        "functionCode": "const fs = require('fs');\nconst path = '/tmp/yt_progress.txt';\nlet progress = 0;\nif (fs.existsSync(path)) {\n  const content = fs.readFileSync(path, 'utf-8').trim();\n  const match = content.match(/(\\d+)%/);\n  if (match) progress = parseInt(match[1]);\n}\nreturn [{ json: { progress } }];"
       },
       "typeVersion": 1,
-      "position": [1000, 150]
+      "position": [1000, 200]
     },
     {
       "id": "2d",
-      "name": "Telegram Download Progress",
+      "name": "Telegram Progress Update",
       "type": "n8n-nodes-base.telegram",
       "parameters": {
         "operation": "sendMessage",
-        "chatId": "<YOUR_CHAT_ID>",
-        "text": "Download Progress: {{$json[\"progress\"]}}%"
+        "chatId": "YOUR_CHAT_ID",
+        "text": "Downloading video... {{$json[\"progress\"]}}%"
       },
       "typeVersion": 1,
-      "position": [1200, 150],
+      "position": [1200, 200],
       "credentials": { "telegramApi": "Telegram Bot" }
+    },
+    {
+      "id": "2e",
+      "name": "Check if Download Complete",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": { "number": [{ "value1": "={{$json[\"progress\"]}}", "operation": "equal", "value2": 100 }] }
+      },
+      "typeVersion": 1,
+      "position": [1400, 200]
+    },
+    {
+      "id": "3",
+      "name": "Upload to Google Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "parameters": { "operation": "upload", "filePath": "/data/video.mp4", "parents": ["root"] },
+      "typeVersion": 1,
+      "position": [1600, 200],
+      "credentials": { "googleDriveOAuth2": "Google Drive OAuth2" }
     },
     {
       "id": "4",
@@ -86,53 +103,31 @@
       "parameters": {
         "resource": "video",
         "operation": "analyze",
-        "input": "/data/video.mp4"
+        "model": "gemini-2.5",
+        "videoUrl": "={{$node[\"Upload to Google Drive\"].json[\"webContentLink\"]}}"
       },
       "typeVersion": 1,
-      "position": [1000, 300]
+      "position": [1800, 200]
     },
     {
       "id": "5",
       "name": "Rank Highlights (Excitement Score)",
       "type": "n8n-nodes-base.function",
       "parameters": {
-        "functionCode": "const scenes = items[0].json.annotationResults[0].shotAnnotations;\nconst labels = items[0].json.annotationResults[0].segmentLabelAnnotations;\n\nfunction scoreScene(start, end) {\n  let score = 0;\n  const duration = end - start;\n\n  if (duration >= 15 && duration <= 45) score += 2;\n\n  for (const label of labels) {\n    for (const seg of label.segments) {\n      const segStart = seg.segment.startTimeOffset?.seconds || 0;\n      const segEnd = seg.segment.endTimeOffset?.seconds || 0;\n      if (segStart <= start && segEnd >= end) {\n        if ([\"Explosion\", \"Fight\", \"Cheering\", \"Gunshot\", \"Goal\"].includes(label.entity.description)) {\n          score += Math.round((label.confidence || 0) * 10);\n        }\n      }\n    }\n  }\n  return score;\n}\n\nconst ranked = scenes.map(s => {\n  const start = s.startTimeOffset?.seconds || 0;\n  const end = s.endTimeOffset?.seconds || 0;\n  return { start, end, score: scoreScene(start, end) };\n});\n\nranked.sort((a, b) => b.score - a.score);\n\nreturn ranked.slice(0, 3).map(s => ({ json: s }));"
+        "functionCode": "const scenes = items[0].json.annotationResults[0].shotAnnotations;\nconst labels = items[0].json.annotationResults[0].segmentLabelAnnotations;\nfunction scoreScene(start, end) {\n  let score = 0;\n  const duration = end - start;\n  if (duration >= 15 && duration <= 45) score += 2;\n  for (const label of labels) {\n    for (const seg of label.segments) {\n      const segStart = seg.segment.startTimeOffset?.seconds || 0;\n      const segEnd = seg.segment.endTimeOffset?.seconds || 0;\n      if (segStart <= start && segEnd >= end) {\n        if ([\"Explosion\",\"Fight\",\"Cheering\",\"Gunshot\",\"Goal\"].includes(label.entity.description)) score += Math.round((label.confidence || 0)*10);\n      }\n    }\n  }\n  return score;\n}\nconst ranked = scenes.map(s => {\n  const start = s.startTimeOffset?.seconds || 0;\n  const end = s.endTimeOffset?.seconds || 0;\n  return { start, end, score: scoreScene(start,end) };\n});\nranked.sort((a,b)=>b.score-a.score);\nreturn ranked.slice(0,3).map(s=>({ json:s }));"
       },
       "typeVersion": 1,
-      "position": [1200, 300]
+      "position": [2000, 200]
     },
     {
       "id": "6",
       "name": "Clip with FFmpeg",
       "type": "n8n-nodes-base.executeCommand",
       "parameters": {
-        "command": "ffmpeg -ss {{$json[\"start\"]}} -i /data/video.mp4 -to {{$json[\"end\"]}} -vf \"scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2\" -c:a copy /tmp/shorts_{{$json[\"start\"]}}.mp4 -progress /tmp/ffmpeg_progress.log"
+        "command": "ffmpeg -ss {{$json[\"start\"]}} -i /data/video.mp4 -to {{$json[\"end\"]}} -vf \"scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2\" -c:a copy /tmp/shorts_{{$json[\"start\"]}}.mp4"
       },
       "typeVersion": 1,
-      "position": [1400, 300]
-    },
-    {
-      "id": "6a",
-      "name": "Parse FFmpeg Progress",
-      "type": "n8n-nodes-base.function",
-      "parameters": {
-        "functionCode": "const log = require('fs').readFileSync('/tmp/ffmpeg_progress.log','utf-8');\nconst timeMatch = log.match(/out_time_ms=(\\d+)/);\nconst durationMatch = log.match(/Duration: (\\d+):(\\d+):(\\d+)/);\nlet percentage = '0';\nif(timeMatch && durationMatch){\n  const out_ms = parseInt(timeMatch[1]);\n  const dur_sec = parseInt(durationMatch[1])*3600 + parseInt(durationMatch[2])*60 + parseInt(durationMatch[3]);\n  percentage = ((out_ms/1000000)/dur_sec*100).toFixed(1);\n}\nreturn [{ json: { progress: percentage } }];"
-      },
-      "typeVersion": 1,
-      "position": [1600, 300]
-    },
-    {
-      "id": "6b",
-      "name": "Telegram FFmpeg Progress",
-      "type": "n8n-nodes-base.telegram",
-      "parameters": {
-        "operation": "sendMessage",
-        "chatId": "<YOUR_CHAT_ID>",
-        "text": "Clipping Progress: {{$json[\"progress\"]}}%"
-      },
-      "typeVersion": 1,
-      "position": [1800, 300],
-      "credentials": { "telegramApi": "Telegram Bot" }
+      "position": [2200, 200]
     },
     {
       "id": "7",
@@ -142,21 +137,16 @@
         "url": "https://www.googleapis.com/upload/youtube/v3/videos?part=snippet,status",
         "method": "POST",
         "authentication": "oAuth2",
-        "options": {},
+        "sendBinaryData": true,
+        "binaryPropertyName": "data",
         "jsonParameters": true,
         "body": {
-          "snippet": {
-            "title": "Gaming Highlight #shorts",
-            "description": "Auto-generated highlight from gaming session",
-            "tags": ["gaming", "shorts", "highlights"]
-          },
+          "snippet": { "title": "Gaming Highlight #shorts", "description": "Auto-generated highlight from gaming session", "tags": ["gaming","shorts","highlights"] },
           "status": { "privacyStatus": "public" }
-        },
-        "sendBinaryData": true,
-        "binaryPropertyName": "data"
+        }
       },
       "typeVersion": 2,
-      "position": [2000, 300],
+      "position": [2400, 200],
       "credentials": { "oAuth2Api": "YouTube OAuth2" }
     },
     {
@@ -177,21 +167,22 @@
         }
       },
       "typeVersion": 2,
-      "position": [2200, 300],
+      "position": [2600, 200],
       "credentials": { "googleApi": "Google Sheets OAuth2" }
     }
   ],
   "connections": {
-    "1": { "main": [[{ "node": "Get Channel Uploads", "type": "main", "index": 0 }]] },
-    "2": { "main": [[{ "node": "Build Video URL", "type": "main", "index": 0 }]] },
-    "2a": { "main": [[{ "node": "Update & Download Video", "type": "main", "index": 0 }]] },
-    "2b": { "main": [[{ "node": "Analyze with Google Gemini Video", "type": "main", "index": 0 }]] },
-    "2c": { "main": [[{ "node": "Telegram Download Progress", "type": "main", "index": 0 }]] },
-    "4": { "main": [[{ "node": "Rank Highlights (Excitement Score)", "type": "main", "index": 0 }]] },
-    "5": { "main": [[{ "node": "Clip with FFmpeg", "type": "main", "index": 0 }]] },
-    "6a": { "main": [[{ "node": "Telegram FFmpeg Progress", "type": "main", "index": 0 }]] },
-    "6b": { "main": [[{ "node": "Parse FFmpeg Progress", "type": "main", "index": 0 }]] },
-    "7": { "main": [[{ "node": "Upload as YouTube Short", "type": "main", "index": 0 }]] },
-    "8": { "main": [[{ "node": "Log to Google Sheets", "type": "main", "index": 0 }]] }
+    "1": { "main": [[{"node":"Get Channel Uploads","type":"main","index":0}]] },
+    "2": { "main": [[{"node":"Build Video URL","type":"main","index":0}]] },
+    "2a": { "main": [[{"node":"Download Video & Write Progress","type":"main","index":0}]] },
+    "2b": { "main": [[{"node":"Read Download Progress","type":"main","index":0}]] },
+    "2c": { "main": [[{"node":"Telegram Progress Update","type":"main","index":0}]] },
+    "2d": { "main": [[{"node":"Check if Download Complete","type":"main","index":0}]] },
+    "2e": { "main": [[{"node":"Read Download Progress","type":"main","index":0}],[{"node":"Upload to Google Drive","type":"main","index":0}]] },
+    "3": { "main": [[{"node":"Analyze with Google Gemini Video","type":"main","index":0}]] },
+    "4": { "main": [[{"node":"Rank Highlights (Excitement Score)","type":"main","index":0}]] },
+    "5": { "main": [[{"node":"Clip with FFmpeg","type":"main","index":0}]] },
+    "6": { "main": [[{"node":"Upload as YouTube Short","type":"main","index":0}]] },
+    "7": { "main": [[{"node":"Log to Google Sheets","type":"main","index":0}]] }
   }
 }
